@@ -1,3 +1,8 @@
+/**
+ * This program takes the output of rtl_sdr into stdin and decodes Z-Wave
+ * frames. The sample rate is assumed to be 2.048 MHz
+ */
+
 #include <cstdio>
 #include <cstdint>
 #include <complex>
@@ -66,6 +71,7 @@ void zwave_print(unsigned char* data, int len)
     std::cerr << ", FC[ack_request=" << p.frame_control.ack_request;
     std::cerr << " header_type=" << p.frame_control.header_type;
     std::cerr << " beaming_info=" << p.frame_control.beaming_info;
+    std::cerr << " seq=" << p.frame_control.sequence_number;
     std::cerr << "], Length: " << std::dec << (int)p.length;
     std::cerr << ", DestNodeId: " << std::dec << (int)p.dest_node_id;
     std::cerr << ", CommandClass: " << std::dec << (int)p.command_class;
@@ -137,9 +143,6 @@ static inline double fsk_demodulator(int re, int im)
 
   return w;
 }
-
-
-
 
 static inline double atan_fm_demodulator(int re, int im)
 {
@@ -291,13 +294,6 @@ bool hasSignal = false;
 bool msc; //Manchester
 const int lead_in = 10;
 double dr; //Datarate
-
-
-
-/**
- * This program takes the output of rtl_sdr into stdin and decodes Z-Wave
- * frames. The sample rate is assumed to be 2.048 MHz
- */
 
 /* 9.6k frame  of length  64 + preamble 10 */
 #define SAMPLERATE 2048000
