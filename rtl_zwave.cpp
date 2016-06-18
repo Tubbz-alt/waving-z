@@ -1,20 +1,76 @@
-#include<stdio.h>
-#include<complex>
+#include <cstdio>
+#include <cstdint>
+#include <complex>
 #include <unistd.h>
+#include <iostream>
+#include <iomanip>
+#include <chrono>
 
 using namespace std;
 
-extern void write_wiresark(unsigned char *f, unsigned char len, int speed);
-extern int open_wirreshark();
+struct frame_control_t
+{
+    uint16_t sequence_number: 4;
+    uint16_t ack_request: 1;
+    uint16_t low_power: 1;
+    uint16_t reserved1: 2;
+    uint16_t header_type: 4;
+    uint16_t reserved2: 1;
+    uint16_t beaming_info: 3;
+    uint16_t reserver3: 4;
+} __attribute__((packed));
+
+struct packet {
+    uint32_t home_id;
+    uint8_t source_node_id;
+    frame_control_t frame_control;
+    uint8_t length;
+    uint8_t dest_node_id;
+    uint8_t command_class;
+} __attribute__((packed));
+
+uint8_t checksum( uint8_t* begin, uint8_t* end )
+{
+    uint8_t checksum( 0xff );
+    for(uint8_t* it = begin; it != end; ++it )
+    {
+        checksum ^= *it;
+    }
+    return checksum;
+}
 
 void zwave_print(unsigned char* data, int len)
 {
-
-  for (int i = 0; i < len; i++)
+    chrono::milliseconds ms = chrono::duration_cast< chrono::milliseconds >(
+        chrono::system_clock::now().time_since_epoch()
+        );
+    std::cerr << std::dec << std::setfill(' ') << std::setw(0);
+    std::cerr << "[" << ms.count() << "] ";
+    if ( len < sizeof(packet) || checksum( data, data + len - 1) != data[len-1] )
     {
-      printf("%.2x", data[i]);
+        std::cerr << "Invalid packet!" << std::endl;
+        return;
     }
-  printf("\n");
+    packet& p = *(packet*)data;
+    std::cerr << std::hex << setfill('0') << std::setw(2);
+    std::cerr << "HomeId: " << p.home_id;
+    std::cerr << ", SourceNodeId: " << (int)p.source_node_id;
+    std::cerr << std::hex << ", FC: " << *reinterpret_cast<uint16_t*>(&p.frame_control);
+    std::cerr << std::dec;
+    std::cerr << ", FC[ack_request=" << p.frame_control.ack_request;
+    std::cerr << " low_power=" << p.frame_control.low_power;
+    std::cerr << " header_type=" << p.frame_control.header_type;
+    std::cerr << " beaming_info=" << p.frame_control.beaming_info;
+    std::cerr << "], Length: " << std::dec << (int)p.length;
+    std::cerr << ", DestNodeId: " << std::dec << (int)p.dest_node_id;
+    std::cerr << ", CommandClass: " << std::dec << (int)p.command_class;
+    std::cerr << ", Payload: ";
+    std::cerr << std::hex << setfill('0');
+    for (int i = sizeof(packet); i < len - 1; i++)
+    {
+        std::cerr << std::setw(2) << (int)data[i] << " ";
+    }
+    std::cerr << std::endl;
 }
 
 /*
@@ -267,7 +323,6 @@ int main(int argc, char** argv)
         }
     }
 
-  open_wirreshark();
 
   while (!feof(stdin))
     {
@@ -276,16 +331,6 @@ int main(int argc, char** argv)
 
       for(int i=0; i < 1024; i+=2)
         {
-          if (enable_recorder)
-            {
-              /*Frame recorder for debugging */
-              recorder[rec_ptr++] = complex<unsigned char>(g[0], g[1]);
-              if (rec_ptr > MAX_FRAME_DURATION)
-                rec_ptr = 0;
-            }
-          /*if(g[i]==255 || g[0]==0) {
-            printf("Gain is too high!\n");
-            }*/
           double re = (g[i] - 127);
           double im = (g[i+1] - 127);
 
@@ -306,21 +351,10 @@ int main(int argc, char** argv)
            */
           lock = lock_filter(f);
 
-          //printf("%e %e %e\n",f,s,lock);
-
-          /* TODO come up with a better lock detection
-           * just using lock < 0 as lock condition, seems rather arbitrary
-           */
-          /*    #If we are in bitlock mode, make sure that the signal does not derivate by more than
-          # 1/2 seperation, TODO calculate 1/2 seperation
-           */
-          /*if(state == S_BITLOCK) {
-            hasSignal = fabs(wc - lock) < 0.1;
-            printf("lock lost %f\n",fabs(wc - lock));
-            } else {*/
+          /*    If we are in bitlock mode, make sure that the signal does not derivate by more than
+                1/2 seperation, TODO calculate 1/2 seperation
+          */
           hasSignal = fabs(lock) > 0.01;
-          /*}*/
-
 
           if (hasSignal)
             {
@@ -400,7 +434,7 @@ int main(int argc, char** argv)
                             }
                           else
                             {
-                              //printf("SOF0 error bit len %f\n",bit_len);
+                              // SOF0 error (bit_len);
                               state = S_IDLE;
                             }
                         }
@@ -416,7 +450,7 @@ int main(int argc, char** argv)
                             }
                           else
                             {
-                              //printf("SOF1 error \n");
+                              // SOF1 error
                               state = S_IDLE;
                             }
                         }
@@ -441,34 +475,7 @@ int main(int argc, char** argv)
               if (state == S_BITLOCK && fs.state_b == fs.B_DATA)
                 {
                   f_num++;
-                  //zwave_print(fs.data,fs.data_len);
-                  write_wiresark(fs.data, fs.data_len,
-                                 bit_len < 30 ? 2 : bit_len < 100 ? 1 : 0);
-                  //frame = bits2bytes(bits)
-                  //zwave_print(frame)
-                  printf("Frame num %lu ends on sample %lu\ Fofs=%f SR=%f\n", f_num, s_num,wc/M_PI*(SAMPLERATE/2),dr );
-
-                  if (enable_recorder)
-                    {
-                      char rec_name[256];
-                      snprintf(rec_name, sizeof(rec_name), "frame%lu.dat", f_num);
-                      FILE *f = fopen(rec_name, "w");
-                      if (rec_ptr > frame_start)
-                        {
-                          fwrite(&recorder[frame_start],
-                                 sizeof(complex<unsigned char> ),
-                                 rec_ptr - frame_start, f);
-                        }
-                      else
-                        {
-                          fwrite(&recorder[frame_start],
-                                 sizeof(complex<unsigned char> ),
-                                 MAX_FRAME_DURATION - frame_start, f);
-                          fwrite(&recorder[0], sizeof(complex<unsigned char> ),
-                                 rec_ptr,f);
-                        }
-                      fclose(f);
-                    }
+                  zwave_print(fs.data,fs.data_len);
                 }
               fs.state_b = fs.B_PREAMP;
               state = S_IDLE;
