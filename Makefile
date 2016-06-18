@@ -1,4 +1,4 @@
-CXXFLAGS=-O3 
+CXXFLAGS=-O3 -std=c++11
 rtl_zwave: rtl_zwave.o
 	$(CXX) -o $@  $^ $(LDFLAGS)
 

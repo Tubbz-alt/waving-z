@@ -5,22 +5,26 @@
 #include <iostream>
 #include <iomanip>
 #include <chrono>
+#include <cassert>
 
 using namespace std;
 
 struct frame_control_t
 {
-    uint16_t sequence_number: 4;
-    uint16_t ack_request: 1;
-    uint16_t low_power: 1;
-    uint16_t reserved1: 2;
     uint16_t header_type: 4;
+    uint16_t reserved3: 1;
+    uint16_t reserved4: 1;
+    uint16_t ack_request: 1;
+    uint16_t reserved5: 1;
+    uint16_t sequence_number: 4;
+    uint16_t reserved1: 1;
+    uint16_t beaming_info: 2;
     uint16_t reserved2: 1;
-    uint16_t beaming_info: 3;
-    uint16_t reserver3: 4;
 } __attribute__((packed));
 
-struct packet {
+static_assert(sizeof(frame_control_t) == 2, "Assumption broken");
+
+struct packet_t {
     uint32_t home_id;
     uint8_t source_node_id;
     frame_control_t frame_control;
@@ -28,6 +32,8 @@ struct packet {
     uint8_t dest_node_id;
     uint8_t command_class;
 } __attribute__((packed));
+
+static_assert(sizeof(packet_t) == 10, "Assumption broken");
 
 uint8_t checksum( uint8_t* begin, uint8_t* end )
 {
@@ -46,19 +52,18 @@ void zwave_print(unsigned char* data, int len)
         );
     std::cerr << std::dec << std::setfill(' ') << std::setw(0);
     std::cerr << "[" << ms.count() << "] ";
-    if ( len < sizeof(packet) || checksum( data, data + len - 1) != data[len-1] )
+    if ( len < sizeof(packet_t) || checksum( data, data + len - 1) != data[len-1] )
     {
         std::cerr << "Invalid packet!" << std::endl;
         return;
     }
-    packet& p = *(packet*)data;
+    packet_t& p = *(packet_t*)data;
     std::cerr << std::hex << setfill('0') << std::setw(2);
     std::cerr << "HomeId: " << p.home_id;
     std::cerr << ", SourceNodeId: " << (int)p.source_node_id;
     std::cerr << std::hex << ", FC: " << *reinterpret_cast<uint16_t*>(&p.frame_control);
     std::cerr << std::dec;
     std::cerr << ", FC[ack_request=" << p.frame_control.ack_request;
-    std::cerr << " low_power=" << p.frame_control.low_power;
     std::cerr << " header_type=" << p.frame_control.header_type;
     std::cerr << " beaming_info=" << p.frame_control.beaming_info;
     std::cerr << "], Length: " << std::dec << (int)p.length;
@@ -66,7 +71,7 @@ void zwave_print(unsigned char* data, int len)
     std::cerr << ", CommandClass: " << std::dec << (int)p.command_class;
     std::cerr << ", Payload: ";
     std::cerr << std::hex << setfill('0');
-    for (int i = sizeof(packet); i < len - 1; i++)
+    for (int i = sizeof(packet_t); i < len - 1; i++)
     {
         std::cerr << std::setw(2) << (int)data[i] << " ";
     }
