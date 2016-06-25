@@ -17,14 +17,12 @@ using namespace std;
 struct frame_control_t
 {
     uint16_t header_type: 4;
-    uint16_t reserved3: 1;
-    uint16_t reserved4: 1;
+    uint16_t speed: 1;
+    uint16_t low_power: 1;
     uint16_t ack_request: 1;
-    uint16_t reserved5: 1;
+    uint16_t routed: 1;
     uint16_t sequence_number: 4;
-    uint16_t reserved1: 1;
-    uint16_t beaming_info: 2;
-    uint16_t reserved2: 1;
+    uint16_t beaming_info: 4;
 } __attribute__((packed));
 
 static_assert(sizeof(frame_control_t) == 2, "Assumption broken");
@@ -63,20 +61,23 @@ void zwave_print(unsigned char* data, int len)
         return;
     }
     packet_t& p = *(packet_t*)data;
-    std::cerr << std::hex << setfill('0') << std::setw(2);
-    std::cerr << "HomeId: " << p.home_id;
-    std::cerr << ", SourceNodeId: " << (int)p.source_node_id;
-    std::cerr << std::hex << ", FC: " << *reinterpret_cast<uint16_t*>(&p.frame_control);
-    std::cerr << std::dec;
-    std::cerr << ", FC[ack_request=" << p.frame_control.ack_request;
-    std::cerr << " header_type=" << p.frame_control.header_type;
-    std::cerr << " beaming_info=" << p.frame_control.beaming_info;
-    std::cerr << " seq=" << p.frame_control.sequence_number;
-    std::cerr << "], Length: " << std::dec << (int)p.length;
-    std::cerr << ", DestNodeId: " << std::dec << (int)p.dest_node_id;
-    std::cerr << ", CommandClass: " << std::dec << (int)p.command_class;
-    std::cerr << ", Payload: ";
-    std::cerr << std::hex << setfill('0');
+    std::cerr << std::hex << setfill('0') << std::setw(2)
+              << "HomeId: " << p.home_id
+              << ", SourceNodeId: " << (int)p.source_node_id
+              << std::hex
+              << ", FC: " << *reinterpret_cast<uint16_t*>(&p.frame_control)
+              << std::dec
+              << ", FC[speed=" << p.frame_control.speed
+              << " low_power=" << p.frame_control.low_power
+              << " ack_request=" << p.frame_control.ack_request
+              << " header_type=" << p.frame_control.header_type
+              << " beaming_info=" << p.frame_control.beaming_info
+              << " seq=" << p.frame_control.sequence_number
+              << "], Length: " << std::dec << (int)p.length
+              << ", DestNodeId: " << std::dec << (int)p.dest_node_id
+              << ", CommandClass: " << std::dec << (int)p.command_class
+              << ", Payload: "
+              << std::hex << setfill('0');
     for (int i = sizeof(packet_t); i < len - 1; i++)
     {
         std::cerr << std::setw(2) << (int)data[i] << " ";
