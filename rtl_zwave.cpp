@@ -15,7 +15,8 @@ const int SAMPLERATE = 2048000;
 #include <cassert>
 #include <functional>
 #include <algorithm>
-
+#include <array>
+#include <numeric>
 #include <boost/circular_buffer.hpp>
 
 using namespace std;
@@ -165,20 +166,21 @@ enum
     S_BITLOCK
 } state = S_IDLE;
 
-int pre_len = 0; //  # Length of preamble bit
-int pre_cnt = 0;
-double bit_len = 0;
-double bit_cnt = 0.0;
-double wc = 0; //  # center frequency
-bool last_logic = false;
-bool hasSignal = false;
-bool msc; // Manchester
-const int lead_in = 10;
-double dr; // Datarate
 
 int
 main(int argc, char** argv)
 {
+    int pre_len = 0; //  # Length of preamble bit
+    int pre_cnt = 0;
+    double bit_len = 0;
+    double bit_cnt = 0.0;
+    double wc = 0; //  # center frequency
+    bool last_logic = false;
+    bool hasSignal = false;
+    bool msc; // Manchester
+    const int lead_in = 10;
+    double dr; // Datarate
+
     double f, s, lock;
     size_t s_num = 0; // Sample number
     size_t f_num = 0; // Z-wave frame number
