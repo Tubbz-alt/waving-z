@@ -20,9 +20,7 @@ const int SAMPLERATE = 2048000;
 
 using namespace std;
 
-// -----------------------------------------------------------------------------
-
-// assumptions (e.g. on endianness)
+// assumptions were made (e.g. on endianness)
 struct frame_control_t
 {
     uint16_t header_type : 4;
@@ -48,16 +46,14 @@ struct packet_t
 
 static_assert(sizeof(packet_t) == 10, "Assumption broken");
 
-// -----------------------------------------------------------------------------
-
+/// CRC8 Checksum calculator
 uint8_t
 checksum(uint8_t* begin, uint8_t* end)
 {
     return std::accumulate(begin, end, 0xff, std::bit_xor<uint8_t>());
 }
 
-// -----------------------------------------------------------------------------
-
+/// Print z-wave packet
 void
 zwave_print(unsigned char* data, int len)
 {
@@ -68,8 +64,11 @@ zwave_print(unsigned char* data, int len)
     if (len < sizeof(packet_t) ||
         checksum(data, data + len - 1) != data[len - 1])
     {
-        std::cerr << "Invalid packet!" << std::endl;
-        return;
+        std::cerr << "[ ] ";
+    }
+    else
+    {
+        std::cerr << "[x] ";
     }
     packet_t& p = *(packet_t*)data;
     std::cerr << std::hex << setfill('0') << std::setw(2)
@@ -92,14 +91,14 @@ zwave_print(unsigned char* data, int len)
     std::cerr << std::endl;
 }
 
-// -----------------------------------------------------------------------------
-
+/// Simple arctan demodulator
 struct atan_fm_demodulator
 {
     atan_fm_demodulator()
       : s1(0)
     {
     }
+    /// Q&I
     double operator()(double re, double im)
     {
         std::complex<double> s(re, im);
@@ -110,8 +109,7 @@ struct atan_fm_demodulator
     std::complex<double> s1;
 };
 
-// -----------------------------------------------------------------------------
-
+/// Generic IIR filter implementation
 template <int ORDER>
 struct iir_filter
 {
@@ -165,20 +163,20 @@ enum
     S_BITLOCK
 } state = S_IDLE;
 
-int pre_len = 0; //  # Length of preamble bit
-int pre_cnt = 0;
-double bit_len = 0;
-double bit_cnt = 0.0;
-double wc = 0; //  # center frequency
-bool last_logic = false;
-bool hasSignal = false;
-bool msc; // Manchester
-const int lead_in = 10;
-double dr; // Datarate
-
 int
 main(int argc, char** argv)
 {
+    int pre_len = 0; //  # Length of preamble bit
+    int pre_cnt = 0;
+    double bit_len = 0;
+    double bit_cnt = 0.0;
+    double wc = 0; //  # center frequency
+    bool last_logic = false;
+    bool hasSignal = false;
+    bool msc; // Manchester
+    const int lead_in = 10;
+    double dr; // Datarate
+
     double f, s, lock;
     size_t s_num = 0; // Sample number
     size_t f_num = 0; // Z-wave frame number
@@ -186,26 +184,28 @@ main(int argc, char** argv)
     int frame_start;
 
     atan_fm_demodulator demod;
-    // low_pass_filter lp1, lp2;
 
-    iir_filter<6> lp1{ { { .00000218780329, .00001312681974, .00003281704935,
-                           .00004375606580, .00003281704935, .00001312681974,
-                           .00000218780329 } },
-                       { { -5.0521639483, 10.6996337410, -12.1514352550,
-                           7.8013262392, -2.6834487459, 0.3862279890 } } };
-    iir_filter<6> lp2 = lp1;
+    // butter(4, 150000/2048000)
+    iir_filter<4> lp1{ { { 1.319195257386e-04, 5.276781029543e-04,
+                           7.915171544315e-04, 5.276781029543e-04,
+                           1.319195257386e-04 } },
+                       { { -3.399357475969e+00, 4.371948388254e+00,
+                           -2.517738214287e+00, 5.472580144144e-01 } } };
+    auto lp2 = lp1;
 
-    // http://engineerjs.com/?sidebar=docs/iir.html
-    // 100kHz butterworth low pass
-    iir_filter<3> freq_filter{ { { 0.002716, 0.008149, 0.008149, 0.002716 } },
-                               { { -2.389, 1.95, -0.5401 } } };
+    // butter(3, 204800/2048000)
+    iir_filter<3> freq_filter{ { { 2.898194633721e-03, 8.694583901164e-03,
+                                   8.694583901164e-03, 2.898194633721e-03 } },
+                               { { -2.374094743709e+00, 1.929355669091e+00,
+                                   -5.320753683121e-01 } } };
 
-    // http://engineerjs.com/?sidebar=docs/iir.html
-    // 10kHz butterworth low pass
-    iir_filter<3> lock_filter{ { { 0.00000350136551, 0.00001050409654,
-                                   0.00001050409654, 0.00000350136551 } },
-                               { { -2.9386431728, 2.8791542471,
-                                   -0.9404830634 } } };
+    // butter(3, 20480/2048000)
+    iir_filter<3> lock_filter{ { { 3.756838019751e-06, 1.127051405925e-05,
+                                   1.127051405925e-05, 3.756838019751e-06 } },
+                               { { -2.937170728450e+00, 2.876299723479e+00,
+                                   -9.390989403253e-01 } } };
+
+    std::vector<int> bits;
 
     while (!feof(stdin)) {
         unsigned char g[1024];
@@ -215,31 +215,27 @@ main(int argc, char** argv)
         };
 
         for (int i = 0; i < 1024; i += 2) {
-            double re = (g[i] - 127);
-            double im = (g[i + 1] - 127);
+            double re = double(g[i])/255.0 - 0.5;
+            double im = double(g[i + 1])/255.0 - 0.5;
 
             s_num++;
 
-            re = lp1(re);
-            im = lp2(im);
-
-            f = demod(re, im);
+            double re2 = lp1(re);
+            double im2 = lp2(im);
+            f = demod(re2, im2);
 
             s = freq_filter(f);
 
             /*
-             * We use a 12khz lowpass filter to lock on to a preable. When this
-             * value is "stable",
-             * a preamble could be present, further more the value of lock, will
-             * correspond to the
-             * center frequency of the fsk (wc)
+             * lowpass filter to lock on to a preable. When this value is
+             * "stable", a preamble could be present, further more the value of
+             * lock, will correspond to the center frequency of the fsk (wc)
              */
             lock = lock_filter(f);
 
-            /*    If we are in bitlock mode, make sure that the signal does not
-               derivate by more than
-                  1/2 seperation, TODO calculate 1/2 seperation
-            */
+            /* If we are in bitlock mode, make sure that the signal does not
+             * derivate by more than 1/2 seperation, TODO calculate 1/2
+             * seperation */
             hasSignal = fabs(lock) > 0.01;
 
             if (hasSignal)
@@ -248,6 +244,13 @@ main(int argc, char** argv)
 
                 if (state == S_IDLE)
                 {
+                    for(auto bit: bits)
+                    {
+                        std::cerr <<  bit << " ";
+                    }
+                    if (bits.size())
+                        std::cerr << endl;
+                    bits.clear();
                     state = S_PREAMP;
                     pre_cnt = 0;
                     pre_len = 0;
@@ -256,7 +259,7 @@ main(int argc, char** argv)
                 }
                 else if (state == S_PREAMP)
                 {
-                    wc = 0.99 * wc + lock * 0.01;
+                    wc = 0.95 * wc + lock * 0.05;
                     pre_len++;
                     if (logic ^ last_logic) //#edge trigger (rising and falling)
                     {
@@ -273,12 +276,22 @@ main(int argc, char** argv)
                             state = S_BITLOCK;
                             fs.state_b = fs.B_PREAMP;
                             fs.last_bit = not logic;
-
+                            bits.push_back(fs.last_bit);
                             bit_len = double(pre_len) / (pre_cnt - lead_in - 1);
                             bit_cnt = 3 * bit_len / 4.0;
                             dr = SAMPLERATE / bit_len;
                             msc = dr < 15e3; // Should we use manchester
                                              // encoding
+                            if( dr > 42e3 )
+                            {
+                                bits.clear();
+                                state = S_IDLE;
+                            }
+                            else
+                            {
+                                std::cout << "Manchester: " << msc << std::endl;
+                                std::cout << "Datarate: " << dr << std::endl;
+                            }
                         }
                     }
                 }
@@ -301,6 +314,7 @@ main(int argc, char** argv)
                     }
                     if (bit_cnt >= bit_len) // # new bit
                     {
+                        bits.push_back(logic);
                         // Sub state machine
                         if (fs.state_b == fs.B_PREAMP)
                         {
@@ -319,11 +333,13 @@ main(int argc, char** argv)
                                     fs.b_cnt = 0;
                                     fs.data_len = 0;
                                     fs.state_b = fs.B_DATA;
+                                    std::cerr << std::endl << "DATA" << std::endl;
                                 }
                             }
                             else
                             {
                                 // SOF0 error (bit_len);
+                                std::cerr << "SOF0 Error" << std::endl;
                                 state = S_IDLE;
                             }
                         }
@@ -340,6 +356,7 @@ main(int argc, char** argv)
                             else
                             {
                                 // SOF1 error
+                                std::cerr << "SOF1 Error" << std::endl;
                                 state = S_IDLE;
                             }
                         }
@@ -365,6 +382,10 @@ main(int argc, char** argv)
                 {
                     f_num++;
                     zwave_print(fs.data, fs.data_len);
+                }
+                if (fs.state_b != fs.B_PREAMP)
+                {
+                    std::cerr << "Unlock" << std::endl;
                 }
                 fs.state_b = fs.B_PREAMP;
                 state = S_IDLE;
