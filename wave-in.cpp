@@ -5,6 +5,8 @@
 
 const int SAMPLERATE = 2048000;
 
+#include "dsp.h"
+
 #include <cstdio>
 #include <cstdint>
 #include <complex>
@@ -109,34 +111,6 @@ struct atan_fm_demodulator
     std::complex<double> s1;
 };
 
-/// Generic IIr filter implementation
-template <int ORDER>
-struct iir_filter
-{
-    iir_filter(const std::array<double, ORDER + 1> numerator,
-               const std::array<double, ORDER> denominator)
-      : a(numerator)
-      , b(denominator)
-      , xv(numerator.size())
-      , yv(denominator.size())
-    {
-    }
-
-    double operator()(double in)
-    {
-        xv.push_front(in);
-        double y0 = std::inner_product(xv.begin(), xv.end(), a.begin(), 1.0) -
-                    std::inner_product(yv.begin(), yv.end(), b.begin(), 1.0);
-        yv.push_front(y0);
-        return y0;
-    }
-
-    std::array<double, ORDER + 1> a;
-    std::array<double, ORDER> b;
-    boost::circular_buffer<double> xv;
-    boost::circular_buffer<double> yv;
-};
-
 struct frame_state
 {
     unsigned int bit_count;
@@ -189,20 +163,20 @@ main(int argc, char** argv)
     iir_filter<4> lp1{ { { 1.319195257386e-04, 5.276781029543e-04,
                            7.915171544315e-04, 5.276781029543e-04,
                            1.319195257386e-04 } },
-                       { { -3.399357475969e+00, 4.371948388254e+00,
+        { { 1.0, -3.399357475969e+00, 4.371948388254e+00,
                            -2.517738214287e+00, 5.472580144144e-01 } } };
     auto lp2 = lp1;
 
     // butter(3, 204800/2048000)
     iir_filter<3> freq_filter{ { { 2.898194633721e-03, 8.694583901164e-03,
                                    8.694583901164e-03, 2.898194633721e-03 } },
-                               { { -2.374094743709e+00, 1.929355669091e+00,
+        { { 1.0, -2.374094743709e+00, 1.929355669091e+00,
                                    -5.320753683121e-01 } } };
 
     // butter(3, 20480/2048000)
     iir_filter<3> lock_filter{ { { 3.756838019751e-06, 1.127051405925e-05,
                                    1.127051405925e-05, 3.756838019751e-06 } },
-                               { { -2.937170728450e+00, 2.876299723479e+00,
+        { { 1.0, -2.937170728450e+00, 2.876299723479e+00,
                                    -9.390989403253e-01 } } };
 
     std::vector<int> bits;

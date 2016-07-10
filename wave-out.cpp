@@ -1,3 +1,5 @@
+#include "dsp.h"
+
 #include <cmath>
 #include <vector>
 #include <iostream>
@@ -11,9 +13,6 @@
 #include <iomanip>
 #include <chrono>
 #include <cassert>
-
-#include <boost/circular_buffer.hpp>
-
 
 const double SAMPLE_RATE = 2.048e6;
 const double baud = 40.96e3;
@@ -39,34 +38,6 @@ checksum(It begin, It end)
 {
     return std::accumulate(begin, end, 0xff, std::bit_xor<char>());
 }
-
-/// Generic IIr filter implementation
-template <int ORDER>
-struct iir_filter
-{
-    iir_filter(const std::array<double, ORDER + 1> numerator,
-               const std::array<double, ORDER> denominator)
-      : a(numerator)
-      , b(denominator)
-      , xv(numerator.size())
-      , yv(denominator.size())
-    {
-    }
-
-    double operator()(double in)
-    {
-        xv.push_front(in);
-        double y0 = std::inner_product(xv.begin(), xv.end(), a.begin(), 1.0) -
-                    std::inner_product(yv.begin(), yv.end(), b.begin(), 1.0);
-        yv.push_front(y0);
-        return y0;
-    }
-
-    std::array<double, ORDER + 1> a;
-    std::array<double, ORDER> b;
-    boost::circular_buffer<double> xv;
-    boost::circular_buffer<double> yv;
-};
 
 using namespace std;
 
@@ -105,7 +76,7 @@ main()
 
     int tt = 0;
 
-    iir_filter<1> lp1({ 1.0 }, { });
+    iir_filter<1> lp1({ 1.0 }, { 1.0 });
     auto lp2 = lp1;
 
     for (int ii(0); ii != 4000000; ++ii)
