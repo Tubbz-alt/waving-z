@@ -1,11 +1,24 @@
-/**
- * This program takes the output of rtl_sdr into stdin and decodes Z-Wave
- * frames. The sample rate is assumed to be 2.048 MHz
- */
-
-const int SAMPLERATE = 2048000;
+//
+// Copyright (C) 2016 Mirko Maischberger <mirko.maischberger@gmail.com>
+//
+// This file is part of WavingZ.
+//
+// WavingZ is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// WavingZ is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
+//
 
 #include "dsp.h"
+#include "wavingz.h"
 
 #include <cstdio>
 #include <cstdint>
@@ -48,12 +61,6 @@ struct packet_t
 
 static_assert(sizeof(packet_t) == 10, "Assumption broken");
 
-/// CRC8 Checksum calculator
-uint8_t
-checksum(uint8_t* begin, uint8_t* end)
-{
-    return std::accumulate(begin, end, 0xff, std::bit_xor<uint8_t>());
-}
 
 /// Print z-wave packet
 void
@@ -140,6 +147,7 @@ enum
 int
 main(int argc, char** argv)
 {
+    const int SAMPLE_RATE = 2048000;
     int pre_len = 0; //  # Length of preamble bit
     int pre_cnt = 0;
     double bit_len = 0;
@@ -159,25 +167,21 @@ main(int argc, char** argv)
 
     atan_fm_demodulator demod;
 
-    // butter(4, 150000/2048000)
-    iir_filter<4> lp1{ { { 1.319195257386e-04, 5.276781029543e-04,
-                           7.915171544315e-04, 5.276781029543e-04,
-                           1.319195257386e-04 } },
-        { { 1.0, -3.399357475969e+00, 4.371948388254e+00,
-                           -2.517738214287e+00, 5.472580144144e-01 } } };
+    std::array<double, 5> a1, b1;
+    std::tie(b1, a1) = butter_lp<4>(SAMPLE_RATE, 75000);
+
+    iir_filter<4> lp1(b1, a1);
     auto lp2 = lp1;
 
-    // butter(3, 204800/2048000)
-    iir_filter<3> freq_filter{ { { 2.898194633721e-03, 8.694583901164e-03,
-                                   8.694583901164e-03, 2.898194633721e-03 } },
-        { { 1.0, -2.374094743709e+00, 1.929355669091e+00,
-                                   -5.320753683121e-01 } } };
+    std::array<double, 4> a2, b2;
+    std::tie(b2, a2) = butter_lp<3>(SAMPLE_RATE, 102400);
 
-    // butter(3, 20480/2048000)
-    iir_filter<3> lock_filter{ { { 3.756838019751e-06, 1.127051405925e-05,
-                                   1.127051405925e-05, 3.756838019751e-06 } },
-        { { 1.0, -2.937170728450e+00, 2.876299723479e+00,
-                                   -9.390989403253e-01 } } };
+    iir_filter<3> freq_filter(b2, a2);
+
+    std::array<double, 4> a3, b3;
+    std::tie(b3, a3) = butter_lp<3>(SAMPLE_RATE, 10240);
+
+    iir_filter<3> lock_filter(b3, a3);
 
     std::vector<int> bits;
 
@@ -253,7 +257,7 @@ main(int argc, char** argv)
                             bits.push_back(fs.last_bit);
                             bit_len = double(pre_len) / (pre_cnt - lead_in - 1);
                             bit_cnt = 3 * bit_len / 4.0;
-                            dr = SAMPLERATE / bit_len;
+                            dr = SAMPLE_RATE / bit_len;
                             msc = dr < 15e3; // Should we use manchester
                                              // encoding
                             if( dr > 42e3 )

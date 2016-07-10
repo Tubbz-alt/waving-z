@@ -1,4 +1,5 @@
 #include "dsp.h"
+#include "wavingz.h"
 
 #include <cmath>
 #include <vector>
