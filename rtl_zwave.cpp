@@ -109,7 +109,7 @@ struct atan_fm_demodulator
     std::complex<double> s1;
 };
 
-/// Generic IIR filter implementation
+/// Generic IIr filter implementation
 template <int ORDER>
 struct iir_filter
 {
@@ -236,7 +236,7 @@ main(int argc, char** argv)
             /* If we are in bitlock mode, make sure that the signal does not
              * derivate by more than 1/2 seperation, TODO calculate 1/2
              * seperation */
-            hasSignal = fabs(lock) > 0.01;
+            hasSignal = fabs(lock) > 0.005;
 
             if (hasSignal)
             {
