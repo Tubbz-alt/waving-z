@@ -26,3 +26,4 @@ symbol rate and is down by 40 dB at about 2x the symbol rate. Applying
 the low pass filter to the measured signal may smooth the result."
 
 http://rfmw.em.keysight.com/wireless/helpfiles/89600b/webhelp/subsystems/digdemod/content/dlg_digdemod_fltr_lowpass.htm
+hackrf_transfer -f 868468000 -s 2000000 -x 20 -R -t mod-new

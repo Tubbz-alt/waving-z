@@ -34,8 +34,8 @@
 #include <chrono>
 #include <cassert>
 
-const double SAMPLE_RATE = 2.000e6;
-const double baud = 40.00e3;
+const double SAMPLE_RATE = 2.048e6;
+const double baud = 40.96e3;
 const int Ts = SAMPLE_RATE / baud;
 
 const char preamble = 0x55;
@@ -46,7 +46,7 @@ const char HomeID2 = 0x62;
 const char HomeID3 = 0x08;
 const char SourceID = 0x01;
 const char FC0 = 0x41;
-const char FC1 = 0x0a;
+const char FC1 = 0x05;
 const char DestID = 0x03;
 
 using namespace std;
@@ -54,7 +54,7 @@ using namespace std;
 void
 print_iq(double i, double q)
 {
-    const double A = 110.0;
+    const double A = 120.0;
     const double offset = 0.0;
     if(std::abs(i*A) > 127.0 || std::abs(q*A) > 127.0)
     {
@@ -67,8 +67,7 @@ print_iq(double i, double q)
 int
 main()
 {
-    std::vector<char> buffer;
-
+    std::vector<uint8_t> buffer;
     for (int ii(0); ii < 20; ++ii)
     {
         buffer.push_back(preamble);
@@ -86,13 +85,13 @@ main()
     buffer.push_back(DestID);
     buffer.push_back(37);
     buffer.push_back(0x01);
-    buffer.push_back(0xff);
-    buffer.push_back(0x6e);
+    buffer.push_back(0x00);
+    buffer.push_back(0x9e);
     buffer.push_back(checksum(buffer.begin() + skip, buffer.end()));
 
     int tt = 0;
 
-    double dfreq = 20.00e3;
+    double dfreq = 20.48e3;
 
     //double gain;
     //std::array<double, 3> b, a;
@@ -109,9 +108,9 @@ main()
         print_iq(i, q);
     }
 
-    for (char ch : buffer) {
+    for (uint8_t ch : buffer) {
         for (int ii(0); ii != 8; ++ii) {
-            double f_shift = dfreq * ((ch << (ii)&0x80) ? 2.5 : 0.5);
+            double f_shift = dfreq * ( ((ch << ii) & 0x80) ? 2.5 : 0.5);
             for (int kk(0); kk != Ts; ++kk) {
                 double i =
                   lp1(sin(2.0 * M_PI * f_shift * (double)tt / SAMPLE_RATE));
