@@ -20,8 +20,9 @@
 #pragma once
 
 /// CRC8 Checksum calculator
-uint8_t
-checksum(uint8_t* begin, uint8_t* end)
+template<typename T>
+typename std::iterator_traits<T>::value_type
+checksum(T begin, T end)
 {
     return std::accumulate(begin, end, 0xff, std::bit_xor<uint8_t>());
 }

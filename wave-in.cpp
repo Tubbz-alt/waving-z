@@ -167,21 +167,19 @@ main(int argc, char** argv)
 
     atan_fm_demodulator demod;
 
+    double gain;
     std::array<double, 5> a1, b1;
-    std::tie(b1, a1) = butter_lp<4>(SAMPLE_RATE, 75000);
-
-    iir_filter<4> lp1(b1, a1);
+    std::tie(gain, b1, a1) = butter_lp<4>(SAMPLE_RATE, 75000);
+    iir_filter<4> lp1(gain, b1, a1);
     auto lp2 = lp1;
 
     std::array<double, 4> a2, b2;
-    std::tie(b2, a2) = butter_lp<3>(SAMPLE_RATE, 102400);
-
-    iir_filter<3> freq_filter(b2, a2);
+    std::tie(gain, b2, a2) = butter_lp<3>(SAMPLE_RATE, 102400);
+    iir_filter<3> freq_filter(gain, b2, a2);
 
     std::array<double, 4> a3, b3;
-    std::tie(b3, a3) = butter_lp<3>(SAMPLE_RATE, 10240);
-
-    iir_filter<3> lock_filter(b3, a3);
+    std::tie(gain, b3, a3) = butter_lp<3>(SAMPLE_RATE, 10240);
+    iir_filter<3> lock_filter(gain, b3, a3);
 
     std::vector<int> bits;
 

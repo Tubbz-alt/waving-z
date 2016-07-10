@@ -58,17 +58,17 @@ acof_bwlp(double fcf)
     double st = sin(theta);
     double ct = cos(theta);
     for (int k = 0; k < ORDER; ++k) {
-        double parg = M_PI * (2.0 * k + 1) / (2.0*ORDER);
+        double parg = M_PI * (2.0 * k + 1) / (2.0 * ORDER);
         double a = 1.0 + st * sin(parg);
-        rcof[k].real( -ct / a);
-        rcof[k].imag( -st * cos(parg) / a);
+        rcof[k].real(-ct / a);
+        rcof[k].imag(-st * cos(parg) / a);
     }
     auto ddcof = binomial_mult(rcof);
 
     std::array<double, ORDER + 1> dcof;
     dcof[0] = 1.0;
     for (int k(1); k != ORDER + 1; ++k) {
-        dcof[k] = ddcof[k-1].real();
+        dcof[k] = ddcof[k - 1].real();
     }
     return dcof;
 }
@@ -155,24 +155,10 @@ ccof_bwlp()
 
 template <int ORDER>
 std::array<double, ORDER + 1>
-bcof_bwlp(double fcf)
+ccof_bwhp()
 {
-    auto ccof = ccof_bwlp<ORDER>();
-    double scale_factor = sf_bwlp<ORDER>(fcf);
-    std::transform(ccof.begin(), ccof.end(), ccof.begin(),
-                   std::bind1st(std::multiplies<double>(), scale_factor));
-    return ccof;
-}
-
-template <int ORDER>
-std::array<double, ORDER + 1>
-bcof_bwhp(double fcf)
-{
-    auto ccof = ccof_bwlp<ORDER>();
-    for (int i = 1; i <= ORDER; i += 2) ccof[i] = -ccof[i];
-    double scale_factor = sf_bwhp<ORDER>(fcf);
-    std::transform(ccof.begin(), ccof.end(), ccof.begin(),
-                   std::bind1st(std::multiplies<double>(), scale_factor));
+    std::array<double, ORDER + 1> ccof;
+    // TBD
     return ccof;
 }
 
@@ -189,11 +175,12 @@ bcof_bwhp(double fcf)
 /// @returns [b,a] coefficients ready to be used by the iir_filter class.
 ///
 template <int ORDER>
-std::pair<std::array<double, ORDER + 1>, std::array<double, ORDER + 1>>
+std::tuple<double, std::array<double, ORDER + 1>, std::array<double, ORDER + 1>>
 butter_lp(double sample_rate, double cutoff_freq)
 {
-    return std::make_pair(bcof_bwlp<ORDER>(2.0 * cutoff_freq / sample_rate),
-                          acof_bwlp<ORDER>(2.0 * cutoff_freq / sample_rate));
+    return std::make_tuple(sf_bwlp<ORDER>(2.0 * cutoff_freq / sample_rate),
+                           ccof_bwlp<ORDER>(),
+                           acof_bwlp<ORDER>(2.0 * cutoff_freq / sample_rate));
 }
 
 ///
@@ -207,11 +194,12 @@ butter_lp(double sample_rate, double cutoff_freq)
 /// @returns [b,a] coefficients ready to be used by the iir_filter class.
 ///
 template <int ORDER>
-std::pair<std::array<double, ORDER + 1>, std::array<double, ORDER + 1>>
+std::tuple<double, std::array<double, ORDER + 1>, std::array<double, ORDER + 1>>
 butter_hp(double sample_rate, double cutoff_freq)
 {
-    return std::make_pair(bcof_bwhp<ORDER>(2.0 * cutoff_freq / sample_rate),
-                          acof_bwhp<ORDER>(2.0 * cutoff_freq / sample_rate));
+    return std::make_tuple(sf_bwhp<ORDER>(2.0 * cutoff_freq / sample_rate),
+                           ccof_bwhp<ORDER>(),
+                           acof_bwhp<ORDER>(2.0 * cutoff_freq / sample_rate));
 }
 
 ///
@@ -225,28 +213,28 @@ struct iir_filter
     ///
     /// Example:
     ///
-    ///
-    /// std::array<double, 2048> signal = {0.0, 1.0};
-    /// std::array<double, 4> b, a;
-    /// std::tie(b,a) = butter_lp<3>(2048000, 20480);
-    /// iir_filter lp(b,a);
+    ///     std::array<double, 2048> signal = {0.0, 1.0};
+    ///     double gain;
+    ///     std::array<double, 4> b, a;
+    ///     std::tie(gain, b, a) = butter_lp<3>(2048000, 20480);
+    ///     iir_filter lp(gain, b, a);
     ///
     /// for(double v: signal) v = lp(v);
     ///
     /// @param b Denominator of the filter
     /// @param a Numerator of the filter
     ///
-    explicit
-    iir_filter(const std::array<double, ORDER + 1>& b,
-               const std::array<double, ORDER + 1>& a)
-      : b_m(b)
+    explicit iir_filter(double gain, const std::array<double, ORDER + 1>& b,
+                        const std::array<double, ORDER + 1>& a)
+      : gain_m(gain)
+      , b_m(b)
       , a_m(a)
       , xv_m(ORDER + 1)
       , yv_m(ORDER + 1)
     {
         assert(a[0] == 1.0);
-        for(size_t ii(0); ii!=b.size(); ++ii)
-            assert(b[ii] == b[b.size()-ii-1]);
+        for (size_t ii(0); ii != (ORDER + 1) / 2; ++ii)
+            assert(b[ii] == b[b.size() - ii - 1]);
     }
 
     ///
@@ -260,12 +248,14 @@ struct iir_filter
         xv_m.push_front(in);
         yv_m.push_front(0.0);
         yv_m[0] =
-          std::inner_product(xv_m.begin(), xv_m.end(), b_m.begin(), 1.0) -
-          std::inner_product(yv_m.begin(), yv_m.end(), a_m.begin(), 1.0);
+          std::inner_product(xv_m.begin(), xv_m.end(), b_m.begin(), 0.0) *
+            gain_m -
+          std::inner_product(yv_m.begin(), yv_m.end(), a_m.begin(), 0.0);
         return yv_m[0];
     }
 
   private:
+    double gain_m;
     std::array<double, ORDER + 1> b_m;
     std::array<double, ORDER + 1> a_m;
     boost::circular_buffer<double> xv_m;
