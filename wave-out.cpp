@@ -16,9 +16,11 @@
 // You should have received a copy of the GNU General Public License
 // along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
 //
+// FSK @40000bps, NZR, Separation=40KHz
 
 #include "dsp.h"
 #include "wavingz.h"
+#include <boost/program_options.hpp>
 
 #include <cmath>
 #include <vector>
@@ -33,23 +35,20 @@
 #include <iomanip>
 #include <chrono>
 #include <cassert>
+#include <sstream>
 
-const double SAMPLE_RATE = 2.048e6;
-const double baud = 40.96e3;
+const double SAMPLE_RATE = 2e6;
+const double baud = 40e3;
 const int Ts = SAMPLE_RATE / baud;
 
 const char preamble = 0x55;
 const char SOF = 0xF0;
-const char HomeID0 = 0xd6;
-const char HomeID1 = 0xb2;
-const char HomeID2 = 0x62;
-const char HomeID3 = 0x08;
 const char SourceID = 0x01;
 const char FC0 = 0x41;
 const char FC1 = 0x05;
-const char DestID = 0x03;
 
 using namespace std;
+namespace po = boost::program_options;
 
 void
 print_iq(double i, double q)
@@ -63,44 +62,84 @@ print_iq(double i, double q)
     std::cout << (int8_t)(i*A + offset) << (int8_t)(q*A + offset);
 };
 
-// 40000bps, NZR, Freq-offset=0, Separation=40KHz
+// Disable the filtering
+#define lp1(x) (x)
+#define lp2(x) (x)
+
 int
-main()
+main(int argc, char* argv[])
 {
-    std::vector<uint8_t> buffer;
+
+    std::string homeid_hex;
+    int destid;
+
+    po::options_description desc("Allowed options");
+    desc.add_options()
+        ("help", "produce help message")
+        ("homeid", po::value<std::string>(&homeid_hex), "home id in (hex format without 0x)")
+        ("destid", po::value<int>(&destid), "destination id (decimal)")
+        ("off", "send off packet (default on)")
+       ;
+
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::notify(vm);
+
+    if (vm.count("help")) {
+        cout << desc << "\n";
+        return 1;
+    }
+
+    uint32_t homeid;
+    if (!vm.count("homeid")) {
+        cout << "HomeID is mandatory." << std::endl;
+        return -1;
+    } else {
+        std::stringstream interpreter;
+        interpreter << std::hex << vm["homeid"].as<std::string>();
+        interpreter >> homeid;
+    }
+
+    if (!vm.count("destid")) {
+        cout << "DestinationID is mandatory." << std::endl;
+        return -1;
+    }
+
+    std::cerr << std::hex << homeid << " " << (int)destid << std::endl;
+
+    std::vector<int8_t> buffer;
     for (int ii(0); ii < 20; ++ii)
     {
         buffer.push_back(preamble);
     }
     buffer.push_back(SOF);
-    size_t skip = buffer.size();
-    buffer.push_back(HomeID0);
-    buffer.push_back(HomeID1);
-    buffer.push_back(HomeID2);
-    buffer.push_back(HomeID3);
+    size_t crc_skip = buffer.size();
+    buffer.push_back(homeid >> 24);
+    buffer.push_back(homeid >> 16 & 0xff);
+    buffer.push_back(homeid >> 8 & 0xff);
+    buffer.push_back(homeid & 0xff);
     buffer.push_back(SourceID);
     buffer.push_back(FC0);
     buffer.push_back(FC1);
     buffer.push_back(13); // length
-    buffer.push_back(DestID);
+    buffer.push_back((char)destid);
     buffer.push_back(37);
     buffer.push_back(0x01);
-    buffer.push_back(0x00);
-    buffer.push_back(0x9e);
-    buffer.push_back(checksum(buffer.begin() + skip, buffer.end()));
+    if( vm.count("off"))
+    {
+        buffer.push_back(0x00);
+        buffer.push_back(0x9e);
+    }
+    else
+    {
+        buffer.push_back(0xff);
+        buffer.push_back(0x62);
+    }
+    buffer.push_back(wavingz::checksum(buffer.begin() + crc_skip, buffer.end()));
 
     int tt = 0;
 
-    double dfreq = 20.48e3;
-
-    //double gain;
-    //std::array<double, 3> b, a;
-    //std::tie(gain, b, a) = butter_lp<2>(SAMPLE_RATE, 5.0 * dfreq);
-    //iir_filter<2> lp1(gain, b, a);
-    //auto lp2 = lp1;
-
-#define lp1
-#define lp2
+    double dfreq = 20e3;
 
     for (int ii(0); ii != 2 * SAMPLE_RATE; ++ii) {
         double i = lp1(0.0);

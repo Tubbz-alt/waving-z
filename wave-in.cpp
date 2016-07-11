@@ -25,8 +25,6 @@
 #include <complex>
 #include <unistd.h>
 #include <iostream>
-#include <iomanip>
-#include <chrono>
 #include <cassert>
 #include <functional>
 #include <algorithm>
@@ -34,71 +32,6 @@
 #include <boost/circular_buffer.hpp>
 
 using namespace std;
-
-// assumptions were made (e.g. on endianness)
-struct frame_control_t
-{
-    uint16_t header_type : 4;
-    uint16_t speed : 1;
-    uint16_t low_power : 1;
-    uint16_t ack_request : 1;
-    uint16_t routed : 1;
-    uint16_t sequence_number : 4;
-    uint16_t beaming_info : 4;
-} __attribute__((packed));
-
-static_assert(sizeof(frame_control_t) == 2, "Assumption broken");
-
-struct packet_t
-{
-    uint32_t home_id;
-    uint8_t source_node_id;
-    frame_control_t frame_control;
-    uint8_t length;
-    uint8_t dest_node_id;
-    uint8_t command_class;
-} __attribute__((packed));
-
-static_assert(sizeof(packet_t) == 10, "Assumption broken");
-
-
-/// Print z-wave packet
-void
-zwave_print(unsigned char* data, int len)
-{
-    chrono::milliseconds ms = chrono::duration_cast<chrono::milliseconds>(
-      chrono::system_clock::now().time_since_epoch());
-    std::cerr << std::dec << std::setfill(' ') << std::setw(0);
-    std::cerr << "[" << ms.count() << "] ";
-    if (len < sizeof(packet_t) ||
-        checksum(data, data + len - 1) != data[len - 1])
-    {
-        std::cerr << "[ ] ";
-    }
-    else
-    {
-        std::cerr << "[x] ";
-    }
-    packet_t& p = *(packet_t*)data;
-    std::cerr << std::hex << setfill('0') << std::setw(2)
-              << "HomeId: " << p.home_id
-              << ", SourceNodeId: " << (int)p.source_node_id << std::hex
-              << ", FC: " << *reinterpret_cast<uint16_t*>(&p.frame_control)
-              << std::dec << ", FC[speed=" << p.frame_control.speed
-              << " low_power=" << p.frame_control.low_power
-              << " ack_request=" << p.frame_control.ack_request
-              << " header_type=" << p.frame_control.header_type
-              << " beaming_info=" << p.frame_control.beaming_info
-              << " seq=" << p.frame_control.sequence_number
-              << "], Length: " << std::dec << (int)p.length
-              << ", DestNodeId: " << std::dec << (int)p.dest_node_id
-              << ", CommandClass: " << std::dec << (int)p.command_class
-              << ", Payload: " << std::hex << setfill('0');
-    for (int i = sizeof(packet_t); i < len - 1; i++) {
-        std::cerr << std::setw(2) << (int)data[i] << " ";
-    }
-    std::cerr << std::endl;
-}
 
 /// Simple arctan demodulator
 struct atan_fm_demodulator
@@ -357,7 +290,7 @@ main(int argc, char** argv)
                 if (state == S_BITLOCK && fs.state_b == fs.B_DATA)
                 {
                     f_num++;
-                    zwave_print(fs.data, fs.data_len);
+                    wavingz::zwave_print(fs.data, fs.data_len);
                 }
                 if (fs.state_b != fs.B_PREAMP)
                 {
