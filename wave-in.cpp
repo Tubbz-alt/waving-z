@@ -1,20 +1,7 @@
 //
-// Copyright (C) 2016 Mirko Maischberger <mirko.maischberger@gmail.com>
+// Heavily based on https://github.com/andersesbensen/rtl-zwave
 //
 // This file is part of WavingZ.
-//
-// WavingZ is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// WavingZ is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with Foobar.  If not, see <http://www.gnu.org/licenses/>.
 //
 
 #include "dsp.h"
@@ -30,40 +17,21 @@
 #include <algorithm>
 
 #include <boost/circular_buffer.hpp>
+#include <boost/program_options.hpp>
 
 using namespace std;
-
-/// Simple arctan demodulator
-struct atan_fm_demodulator
-{
-    atan_fm_demodulator()
-      : s1(0)
-    {
-    }
-    /// Q&I
-    double operator()(double re, double im)
-    {
-        std::complex<double> s(re, im);
-        double d = std::arg(std::conj(s1) * s);
-        s1 = s;
-        return d;
-    }
-    std::complex<double> s1;
-};
+namespace po = boost::program_options;
 
 struct frame_state
 {
     unsigned int bit_count;
     unsigned int data_len;
     unsigned char data[64];
-
     bool last_bit;
-
     int b_cnt;
-
     enum
     {
-        B_PREAMP,
+        B_PREAMB,
         B_SOF0,
         B_SOF1,
         B_DATA
@@ -73,13 +41,31 @@ struct frame_state
 enum
 {
     S_IDLE,
-    S_PREAMP,
+    S_PREAMB,
     S_BITLOCK
 } state = S_IDLE;
 
 int
 main(int argc, char** argv)
 {
+    po::options_description desc("WavingZ - Wave-in options");
+    desc.add_options()
+        ("help", "Produce this help message")
+        ("unsigned", "Use unsigned8 (RTL-SDR) instead of signed8 (HackRF One)")
+        ("debug", "Produce debug output")
+       ;
+
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::notify(vm);
+
+    if (vm.count("help")) {
+        cout << desc << "\n";
+        return 1;
+    }
+
+    bool unsigned_input = vm.count("unsigned");
+
     const int SAMPLE_RATE = 2048000;
     int pre_len = 0; //  # Length of preamble bit
     int pre_cnt = 0;
@@ -94,6 +80,7 @@ main(int argc, char** argv)
 
     double f, s, lock;
     size_t s_num = 0; // Sample number
+    size_t frame_start_num;
     size_t f_num = 0; // Z-wave frame number
     int rec_ptr = 0;
     int frame_start;
@@ -101,9 +88,9 @@ main(int argc, char** argv)
     atan_fm_demodulator demod;
 
     double gain;
-    std::array<double, 5> a1, b1;
-    std::tie(gain, b1, a1) = butter_lp<4>(SAMPLE_RATE, 75000);
-    iir_filter<4> lp1(gain, b1, a1);
+    std::array<double, 4> a1, b1;
+    std::tie(gain, b1, a1) = butter_lp<3>(SAMPLE_RATE, 2.0 * 20000 * 2.5);
+    iir_filter<3> lp1(gain, b1, a1);
     auto lp2 = lp1;
 
     std::array<double, 4> a2, b2;
@@ -114,59 +101,49 @@ main(int argc, char** argv)
     std::tie(gain, b3, a3) = butter_lp<3>(SAMPLE_RATE, 10240);
     iir_filter<3> lock_filter(gain, b3, a3);
 
-    std::vector<int> bits;
-
     while (!feof(stdin)) {
-        unsigned char g[1024];
+        uint8_t g[1024];
         if (fread(g, 1024, 1, stdin) != 1)
         {
             continue;
         };
 
         for (int i = 0; i < 1024; i += 2) {
-            double re = double(g[i])/255.0 - 0.5;
-            double im = double(g[i + 1])/255.0 - 0.5;
 
-            s_num++;
+            double re;
+            double im;
+            if (unsigned_input)
+            {
+                re = double(g[i])/127.0 - 1.0;
+                im = double(g[i + 1])/127.0 - 1.0;
+            }
+            else
+            {
+                re = double((int8_t)g[i])/127.0;
+                im = double((int8_t)g[i + 1])/127.0;
+            }
+            s_num++; // sample_number (* 2 == byte offset)
 
             double re2 = lp1(re);
             double im2 = lp2(im);
             f = demod(re2, im2);
-
             s = freq_filter(f);
-
-            /*
-             * lowpass filter to lock on to a preable. When this value is
-             * "stable", a preamble could be present, further more the value of
-             * lock, will correspond to the center frequency of the fsk (wc)
-             */
             lock = lock_filter(f);
-
-            /* If we are in bitlock mode, make sure that the signal does not
-             * derivate by more than 1/2 seperation, TODO calculate 1/2
-             * seperation */
-            hasSignal = fabs(lock) > 0.005;
+            hasSignal = fabs(lock) > 0.001;
 
             if (hasSignal)
             {
                 bool logic = (s - wc) < 0;
-
                 if (state == S_IDLE)
                 {
-                    for(auto bit: bits)
-                    {
-                        std::cerr <<  bit << " ";
-                    }
-                    if (bits.size())
-                        std::cerr << endl;
-                    bits.clear();
-                    state = S_PREAMP;
+                    frame_start_num = s_num; // mark frame start sample for later
+                    state = S_PREAMB;
                     pre_cnt = 0;
                     pre_len = 0;
                     frame_start = rec_ptr;
                     wc = lock;
                 }
-                else if (state == S_PREAMP)
+                else if (state == S_PREAMB)
                 {
                     wc = 0.95 * wc + lock * 0.05;
                     pre_len++;
@@ -183,9 +160,8 @@ main(int argc, char** argv)
                                                          // i.e 80 bits
                         {
                             state = S_BITLOCK;
-                            fs.state_b = fs.B_PREAMP;
+                            fs.state_b = fs.B_PREAMB;
                             fs.last_bit = not logic;
-                            bits.push_back(fs.last_bit);
                             bit_len = double(pre_len) / (pre_cnt - lead_in - 1);
                             bit_cnt = 3 * bit_len / 4.0;
                             dr = SAMPLE_RATE / bit_len;
@@ -193,7 +169,6 @@ main(int argc, char** argv)
                                              // encoding
                             if( dr > 42e3 )
                             {
-                                bits.clear();
                                 state = S_IDLE;
                             }
                             else
@@ -223,9 +198,8 @@ main(int argc, char** argv)
                     }
                     if (bit_cnt >= bit_len) // # new bit
                     {
-                        bits.push_back(logic);
                         // Sub state machine
-                        if (fs.state_b == fs.B_PREAMP)
+                        if (fs.state_b == fs.B_PREAMB)
                         {
                             if (logic and fs.last_bit)
                             {
@@ -242,13 +216,11 @@ main(int argc, char** argv)
                                     fs.b_cnt = 0;
                                     fs.data_len = 0;
                                     fs.state_b = fs.B_DATA;
-                                    std::cerr << std::endl << "DATA" << std::endl;
                                 }
                             }
                             else
                             {
                                 // SOF0 error (bit_len);
-                                std::cerr << "SOF0 Error" << std::endl;
                                 state = S_IDLE;
                             }
                         }
@@ -265,7 +237,6 @@ main(int argc, char** argv)
                             else
                             {
                                 // SOF1 error
-                                std::cerr << "SOF1 Error" << std::endl;
                                 state = S_IDLE;
                             }
                         }
@@ -290,15 +261,13 @@ main(int argc, char** argv)
                 if (state == S_BITLOCK && fs.state_b == fs.B_DATA)
                 {
                     f_num++;
-                    wavingz::zwave_print(fs.data, fs.data_len);
+                    wavingz::zwave_print(fs.data, fs.data + fs.data_len, frame_start_num, s_num);
                 }
-                if (fs.state_b != fs.B_PREAMP)
-                {
-                    std::cerr << "Unlock" << std::endl;
-                }
-                fs.state_b = fs.B_PREAMP;
+                fs.state_b = fs.B_PREAMB;
                 state = S_IDLE;
             }
+            if(vm.count("debug"))
+                std::cerr << s_num << " " << re << " " << im << " " << hasSignal << " " << last_logic << " " << f_num << std::endl;
         }
     }
     return 0;

@@ -202,6 +202,24 @@ butter_hp(double sample_rate, double cutoff_freq)
                            acof_bwhp<ORDER>(2.0 * cutoff_freq / sample_rate));
 }
 
+/// Simple arctan demodulator
+struct atan_fm_demodulator
+{
+    atan_fm_demodulator()
+      : s1(0)
+    {
+    }
+    /// Q&I
+    double operator()(double re, double im)
+    {
+        std::complex<double> s(re, im);
+        double d = std::arg(std::conj(s1) * s);
+        s1 = s;
+        return d;
+    }
+    std::complex<double> s1;
+};
+
 ///
 /// Generic IIR filter simulator or specified ORDER
 ///

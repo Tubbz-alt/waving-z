@@ -7,7 +7,7 @@ files).
 
 ### Example command line for the EU frequency 
 
-    rtl_sdr -f 868420000 -s 2048000 -g 25  - |./rtl_zwave
+    rtl_sdr -f 868440000 -s 2048000 -g 25  - |./rtl_zwave
 
 
 ## Modulator details

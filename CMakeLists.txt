@@ -8,6 +8,8 @@ include_directories(${Boost_INCLUDE_DIRS})
 add_executable(wave-out wave-out.cpp)
 add_executable(wave-in wave-in.cpp)
 add_executable(dsptest dsp.cc)
+add_executable(iqplay play.cpp)
 
 target_link_libraries(wave-in ${Boost_LIBRARIES})
 target_link_libraries(wave-out ${Boost_LIBRARIES})
+target_link_libraries(iqplay ${Boost_LIBRARIES})
