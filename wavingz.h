@@ -21,6 +21,9 @@
 
 #include "dsp.h"
 
+#include <boost/optional.hpp>
+
+#include <bitset>
 #include <iomanip>
 #include <iostream>
 
@@ -127,37 +130,31 @@ struct complex8_convert
     const double A_m = 100.0;
 };
 
+/// Encode the payload into an IQ signal (cu8 or cs8 depending on Byte type)
 template <typename Byte, typename It, size_t SAMPLE_RATE = 2000000,
           size_t baud = 40000>
 std::vector<std::pair<Byte, Byte>>
 encode(It payload_begin, It payload_end)
 {
-    static_assert(SAMPLE_RATE % baud == 0, "Sample rate should be a multiple "
-                                           "of baud rate in order to produce a "
-                                           "coherent modulator.");
-
     constexpr size_t dfreq = 20000;
-
-    static_assert(baud % 2*dfreq == 0, "baud rate need to be an integer multiple "
-                                     "of dfreq in order to produce a coherent "
-                                     "modulator.");
-
     constexpr uint8_t preamble = 0x55; // 10101010...10101010 frame preamble
     constexpr uint8_t SOF = 0xF0;      // Start of frame mark
-    constexpr double f0_mul = 0.5;
+    constexpr double f0_mul = .5;
     constexpr double f1_mul = 2.5;
-
+    static_assert(SAMPLE_RATE % baud == 0,
+                  "Sample rate needs to be a multiple of baud rate");
+    static_assert(dfreq * (int)(f1_mul - f0_mul) % baud == 0,
+                  "Phase coherency rule not satisfied");
     static_assert(f1_mul - f0_mul == 2.0,
-                  "The Frequency shift is should be 40KHz");
-
+                  "The Frequency shift should be 40KHz");
     constexpr size_t Ts = SAMPLE_RATE / baud;
 
     std::vector<std::pair<Byte, Byte>> iq;
 
     double gain;
-    std::array<double, 5> a1, b1;
-    std::tie(gain, b1, a1) = butter_lp<4>(SAMPLE_RATE, 75000);
-    iir_filter<4> lp1(gain, b1, a1);
+    std::array<double, 4> a1, b1;
+    std::tie(gain, b1, a1) = butter_lp<3>(SAMPLE_RATE, 60000*2.5);
+    iir_filter<3> lp1(gain, b1, a1);
     auto lp2 = lp1;
 
     complex8_convert<Byte> convert_iq;
@@ -222,13 +219,12 @@ encode(It payload_begin, It payload_end)
 /// Debug print a packet
 template <typename It>
 inline void
-zwave_print(It data_begin, It data_end, size_t start_sample, size_t end_sample)
+zwave_print(It data_begin, It data_end)
 {
     size_t len = data_end - data_begin;
-    std::cout << std::dec << std::setfill(' ') << std::setw(0);
-    std::cout << "[" << start_sample << ", " << end_sample << "] ";
-    if (len < sizeof(packet_t) ||
-        checksum(data_begin, data_end - 1) != data_begin[len - 1])
+    packet_t& p = *(packet_t*)data_begin;
+    if (len < sizeof(packet_t) || len < p.length+1 ||
+        checksum(data_begin, data_begin + (size_t)p.length) != data_begin[p.length])
     {
         std::cout << "[ ] ";
     }
@@ -236,7 +232,6 @@ zwave_print(It data_begin, It data_end, size_t start_sample, size_t end_sample)
     {
         std::cout << "[x] ";
     }
-    packet_t& p = *(packet_t*)data_begin;
     std::cout << std::hex << std::setfill('0') << std::setw(2)
               << "HomeId: " << ((uint32_t)p.home_id3 | p.home_id2 << 8 |
                                 p.home_id1 << 16 | p.home_id0 << 24)
@@ -250,11 +245,148 @@ zwave_print(It data_begin, It data_end, size_t start_sample, size_t end_sample)
               << " seq=" << p.frame_control_1.sequence_number
               << "], Length: " << std::dec << (int)p.length
               << ", DestNodeId: " << std::dec << (int)p.dest_node_id
-              << ", CommandClass: " << std::dec << (int)p.command_class
+              << ", CommandClass: " << std::hex << (int)p.command_class
               << ", Payload: " << std::hex << std::setfill('0');
-    for (int i = sizeof(packet_t); i < len - 1; i++) {
+    for (int i = sizeof(packet_t); i < p.length; i++) {
         std::cout << std::setw(2) << (int)data_begin[i] << " ";
     }
     std::cout << std::endl;
 }
-}
+
+// demodulation state machine
+namespace demod_sm
+{
+
+struct symbol_sm_t;
+
+// -----------------------------------------------------------------------------
+
+namespace symbol_sm
+{
+
+struct state_base_t
+{
+    virtual void process(symbol_sm_t& ctx, const boost::optional<bool>& symbol) = 0;
+};
+
+// Detecting the first nibble of the SOF (0xF)
+struct start_of_frame_1_t : public state_base_t
+{
+    void process(symbol_sm_t& ctx, const boost::optional<bool>& symbol) override;
+private:
+    size_t cnt = 0;
+};
+
+// Parsing the second nibble of the SOF (0x0)
+struct start_of_frame_0_t : public state_base_t
+{
+    void process(symbol_sm_t& ctx, const boost::optional<bool>& symbol) override;
+private:
+    size_t cnt = 0;
+};
+
+// Pushing data into payload
+struct payload_t : public state_base_t
+{
+    void process(symbol_sm_t& ctx, const boost::optional<bool>& symbol) override;
+private:
+    std::vector<uint8_t> payload;
+    std::bitset<8> b = 0;
+    size_t cnt = 0;
+};
+
+} // namespace
+
+// -----------------------------------------------------------------------------
+
+struct symbol_sm_t
+{
+    symbol_sm_t(const std::function<void(uint8_t*, uint8_t*)>& callback)
+      : callback(callback)
+      , current_state_m(new symbol_sm::start_of_frame_1_t())
+    {
+    }
+    // sample can be 0, 1 or none (no signal)
+    void process(const boost::optional<bool>& symbol);
+    void state(std::unique_ptr<symbol_sm::state_base_t>&& next_state);
+    std::function<void(uint8_t*, uint8_t*)> callback;
+private:
+    std::unique_ptr<symbol_sm::state_base_t> current_state_m;
+};
+
+struct sample_sm_t;
+
+// -----------------------------------------------------------------------------
+
+namespace sample_sm
+{
+
+struct state_base_t
+{
+    virtual void process(sample_sm_t& ctx, const boost::optional<bool>& sample) = 0;
+};
+
+struct idle_t : public state_base_t
+{
+    void process(sample_sm_t& ctx, const boost::optional<bool>& sample) override;
+};
+
+struct lead_in_t : public state_base_t
+{
+    lead_in_t()
+      : counter(0)
+      , last_sample(0)
+    {
+    }
+    void process(sample_sm_t& ctx, const boost::optional<bool>& sample) override;
+private:
+    size_t counter;
+    bool last_sample;
+};
+
+struct preamble_t : public state_base_t
+{
+    preamble_t(bool last_sample)
+        : last_sample(last_sample)
+    {}
+    void process(sample_sm_t& ctx, const boost::optional<bool>& sample) override;
+    size_t symbols_counter = 0;
+    size_t samples_counter = 0;
+    bool last_sample;
+};
+
+struct bitlock_t : public state_base_t
+{
+    bitlock_t(double samples_per_symbol)
+      : samples_per_symbol(samples_per_symbol)
+      , num_high(0)
+      , num_samples(0.0)
+    {}
+    void process(sample_sm_t& ctx, const boost::optional<bool>& sample) override;
+    const double samples_per_symbol;
+    size_t num_high;
+    double num_samples;
+};
+
+} // namespace
+
+// -----------------------------------------------------------------------------
+
+struct sample_sm_t
+{
+    sample_sm_t(size_t sample_rate, symbol_sm_t& sym_sm);
+    // sample can be 0, 1 or none (no signal)
+    void process(const boost::optional<bool>& sample);
+    void state(std::unique_ptr<sample_sm::state_base_t>&& next_state);
+    bool bitlock() { return bitlock_m; }
+    void bitlock(bool v) { bitlock_m = v; }
+    void emit(const boost::optional<bool>& symbol);
+    const size_t sample_rate;
+private:
+    std::reference_wrapper<symbol_sm_t> sym_sm;
+    std::unique_ptr<sample_sm::state_base_t> current_state_m;
+    bool bitlock_m = false;
+};
+
+} // namespace
+} // namespace

@@ -229,18 +229,9 @@ struct iir_filter
     ///
     /// Creates the filter.
     ///
-    /// Example:
-    ///
-    ///     std::array<double, 2048> signal = {0.0, 1.0};
-    ///     double gain;
-    ///     std::array<double, 4> b, a;
-    ///     std::tie(gain, b, a) = butter_lp<3>(2048000, 20480);
-    ///     iir_filter lp(gain, b, a);
-    ///
-    /// for(double v: signal) v = lp(v);
-    ///
-    /// @param b Denominator of the filter
-    /// @param a Numerator of the filter
+    /// @param gain input gain
+    /// @param b Coefficients for the input
+    /// @param a Coefficients for the output
     ///
     explicit iir_filter(double gain, const std::array<double, ORDER + 1>& b,
                         const std::array<double, ORDER + 1>& a)
@@ -266,9 +257,9 @@ struct iir_filter
         xv_m.push_front(in);
         yv_m.push_front(0.0);
         yv_m[0] =
+          -std::inner_product(yv_m.begin(), yv_m.end(), a_m.begin(), 0.0) +
           std::inner_product(xv_m.begin(), xv_m.end(), b_m.begin(), 0.0) *
-            gain_m -
-          std::inner_product(yv_m.begin(), yv_m.end(), a_m.begin(), 0.0);
+            gain_m;
         return yv_m[0];
     }
 
