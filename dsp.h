@@ -257,9 +257,9 @@ struct iir_filter
         xv_m.push_front(in);
         yv_m.push_front(0.0);
         yv_m[0] =
-          -std::inner_product(yv_m.begin(), yv_m.end(), a_m.begin(), 0.0) +
           std::inner_product(xv_m.begin(), xv_m.end(), b_m.begin(), 0.0) *
-            gain_m;
+            gain_m -
+          std::inner_product(yv_m.begin(), yv_m.end(), a_m.begin(), 0.0);
         return yv_m[0];
     }
 

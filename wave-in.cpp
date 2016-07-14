@@ -34,7 +34,6 @@
 #include <algorithm>
 
 #include <boost/optional.hpp>
-#include <boost/circular_buffer.hpp>
 #include <boost/program_options.hpp>
 
 using namespace std;
@@ -67,16 +66,16 @@ main(int argc, char** argv)
 
     double gain;
     std::array<double, 4> a1, b1;
-    std::tie(gain, b1, a1) = butter_lp<3>(SAMPLE_RATE, 2.0 * 20000 * 2.5);
+    std::tie(gain, b1, a1) = butter_lp<3>(SAMPLE_RATE, 80000 * 2.5);
     iir_filter<3> lp1(gain, b1, a1);
     auto lp2 = lp1;
 
     std::array<double, 4> a2, b2;
-    std::tie(gain, b2, a2) = butter_lp<3>(SAMPLE_RATE, 102400);
+    std::tie(gain, b2, a2) = butter_lp<3>(SAMPLE_RATE, 40000 * 2.5);
     iir_filter<3> freq_filter(gain, b2, a2);
 
     std::array<double, 4> a3, b3;
-    std::tie(gain, b3, a3) = butter_lp<3>(SAMPLE_RATE, 10240);
+    std::tie(gain, b3, a3) = butter_lp<3>(SAMPLE_RATE, 1200);
     iir_filter<3> lock_filter(gain, b3, a3);
 
     struct process_wavingz {
@@ -90,43 +89,36 @@ main(int argc, char** argv)
     wavingz::demod_sm::symbol_sm_t symbols_sm(wave_callback);
     // the samples will be converted to symbols
     wavingz::demod_sm::sample_sm_t samples_sm(SAMPLE_RATE, symbols_sm);
-
+    size_t counter = 0;
     double omega_c = 0;
-    while (!cin.eof()) {
+    for(;;) {
         double re, im;
+        char ii, qq;
+        if(!cin.get(ii) || !cin.get(qq)) break;
         if (unsigned_input)
         {
-            uint8_t ii, qq;
-            cin >> ii >> qq;
-            re = lp1(double(ii)/127.0 - 1.0);
-            im = lp2(double(qq)/127.0 - 1.0);
+            re = double((uint8_t)ii)/127.0 - 1.0;
+            im = double((uint8_t)qq)/127.0 - 1.0;
         }
         else
         {
-            int8_t ii, qq;
-            cin >> ii >> qq;
-            re = lp1(double((int8_t)ii)/127.0);
-            im = lp2(double((int8_t)qq)/127.0);
+            re = double(ii)/127.0;
+            im = double(qq)/127.0;
         }
-
-        double f = demod(re, im);
+        assert(std::abs(re) <= 1.0);
+        assert(std::abs(im) <= 1.0);
+        double f = demod(lp1(re), lp2(im));
         double s = freq_filter(f);
         double lock_freq = lock_filter(f);
         boost::optional<bool> sample;
-
         // check for signal, adjust central freq, and get sample
-        if(fabs(lock_freq) > 0.01)
+        bool signal = fabs(lock_freq) > 0.015;
+        if(signal)
         {
             if (samples_sm.idle()) omega_c = lock_freq;
-            sample = (s - omega_c) < 0;
+            sample = (s - omega_c) < 0.0;
             if (samples_sm.preamble()) omega_c = 0.95 * omega_c + lock_freq * 0.05;
-            // std::cout << *sample << std::endl;
         }
-        else
-        {
-            sample = boost::none;
-        }
-
         // process the sample with the state machine
         samples_sm.process(sample);
     }

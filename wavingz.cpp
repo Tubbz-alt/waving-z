@@ -92,7 +92,7 @@ payload_t::process(symbol_sm_t& ctx, const boost::optional<bool>& symbol)
     {
         ctx.callback(payload.data(), payload.data() + payload.size());
         ctx.state(
-          std::unique_ptr<start_of_frame_1_t>(new start_of_frame_1_t()));
+            std::unique_ptr<start_of_frame_1_t>(new start_of_frame_1_t()));
     }
     else
     {
@@ -142,14 +142,15 @@ idle_t::process(sample_sm_t& ctx, const boost::optional<bool>& sample)
     // When we get a signal we go into preamble
     if (sample != boost::none)
     {
-        // wc = lock
-        ctx.state(std::unique_ptr<lead_in_t>(new lead_in_t()));
+        ctx.state(std::unique_ptr<lead_in_t>(new lead_in_t(*sample)));
     }
 }
 
 void
 lead_in_t::process(sample_sm_t& ctx, const boost::optional<bool>& sample)
 {
+    const size_t LEAD_IN_SYMBOLS = 10;
+
     // On no signal, return to idle
     if (sample == boost::none)
     {
@@ -160,7 +161,7 @@ lead_in_t::process(sample_sm_t& ctx, const boost::optional<bool>& sample)
         // skip the first few samples to synchronize
         if (*sample != last_sample)
         {
-            if (++counter == 10)
+            if (++counter == LEAD_IN_SYMBOLS)
             {
                 ctx.state(std::unique_ptr<preamble_t>(new preamble_t(*sample)));
             }
@@ -187,11 +188,11 @@ preamble_t::process(sample_sm_t& ctx, const boost::optional<bool>& sample)
         if (*sample != last_sample)
         {
             ++symbols_counter;
-            if (symbols_counter == SYNC_SYMBOLS)
+            if (symbols_counter > SYNC_SYMBOLS)
             {
-                double sps = double(samples_counter) / (symbols_counter);
+                double sps = double(samples_counter) / (symbols_counter - 1);
                 double data_rate = ctx.sample_rate / sps;
-                ctx.state(std::unique_ptr<bitlock_t>(new bitlock_t(sps)));
+                ctx.state(std::unique_ptr<bitlock_t>(new bitlock_t(sps, *sample)));
             }
         }
         last_sample = *sample;
@@ -209,13 +210,18 @@ bitlock_t::process(sample_sm_t& ctx, const boost::optional<bool>& sample)
     }
     else
     {
-        num_samples = num_samples + 1.0;
-        if (*sample)
-            num_high++;
+        if(*sample != last_sample)
+        {
+            last_sample = *sample;
+            num_samples = 3.0 * samples_per_symbol / 4.0;
+        }
+        else
+        {
+            num_samples = num_samples + 1.0;
+        }
         if (num_samples >= samples_per_symbol)
         {
-            ctx.emit((num_high > samples_per_symbol / 2));
-            num_high = 0;
+            ctx.emit(*sample);
             num_samples -= samples_per_symbol; // keep alignment
         }
     }

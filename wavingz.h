@@ -152,9 +152,9 @@ encode(It payload_begin, It payload_end)
     std::vector<std::pair<Byte, Byte>> iq;
 
     double gain;
-    std::array<double, 4> a1, b1;
-    std::tie(gain, b1, a1) = butter_lp<3>(SAMPLE_RATE, 60000*2.5);
-    iir_filter<3> lp1(gain, b1, a1);
+    std::array<double, 5> a1, b1;
+    std::tie(gain, b1, a1) = butter_lp<4>(SAMPLE_RATE, f1_mul * dfreq * 2.5);
+    iir_filter<4> lp1(gain, b1, a1);
     auto lp2 = lp1;
 
     complex8_convert<Byte> convert_iq;
@@ -212,7 +212,6 @@ encode(It payload_begin, It payload_end)
     for (int ii(0); ii != (int)SAMPLE_RATE; ++ii) {
         iq.emplace_back(convert_iq(lp1(0.0), lp2(0.0)));
     }
-
     return iq;
 }
 
@@ -333,9 +332,9 @@ struct idle_t : public state_base_t
 
 struct lead_in_t : public state_base_t
 {
-    lead_in_t()
+    lead_in_t(bool last_sample)
       : counter(0)
-      , last_sample(0)
+      , last_sample(last_sample)
     {
     }
     void process(sample_sm_t& ctx, const boost::optional<bool>& sample) override;
@@ -357,15 +356,15 @@ struct preamble_t : public state_base_t
 
 struct bitlock_t : public state_base_t
 {
-    bitlock_t(double samples_per_symbol)
+    bitlock_t(double samples_per_symbol, bool last_sample)
       : samples_per_symbol(samples_per_symbol)
-      , num_high(0)
-      , num_samples(0.0)
+      , num_samples(3.0 * samples_per_symbol / 4.0),
+        last_sample(last_sample)
     {}
     void process(sample_sm_t& ctx, const boost::optional<bool>& sample) override;
     const double samples_per_symbol;
-    size_t num_high;
     double num_samples;
+    bool last_sample;
 };
 
 } // namespace
