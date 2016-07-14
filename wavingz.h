@@ -378,14 +378,16 @@ struct sample_sm_t
     // sample can be 0, 1 or none (no signal)
     void process(const boost::optional<bool>& sample);
     void state(std::unique_ptr<sample_sm::state_base_t>&& next_state);
-    bool bitlock() { return bitlock_m; }
-    void bitlock(bool v) { bitlock_m = v; }
+    bool preamble() { return
+            typeid(*current_state_m) == typeid(sample_sm::preamble_t) ||
+            typeid(*current_state_m) == typeid(sample_sm::lead_in_t);
+    }
+    bool idle() { return typeid(*current_state_m) == typeid(sample_sm::idle_t); }
     void emit(const boost::optional<bool>& symbol);
     const size_t sample_rate;
 private:
     std::reference_wrapper<symbol_sm_t> sym_sm;
     std::unique_ptr<sample_sm::state_base_t> current_state_m;
-    bool bitlock_m = false;
 };
 
 } // namespace

@@ -72,11 +72,11 @@ main(int argc, char** argv)
     auto lp2 = lp1;
 
     std::array<double, 4> a2, b2;
-    std::tie(gain, b2, a2) = butter_lp<3>(SAMPLE_RATE, 100000);
+    std::tie(gain, b2, a2) = butter_lp<3>(SAMPLE_RATE, 102400);
     iir_filter<3> freq_filter(gain, b2, a2);
 
     std::array<double, 4> a3, b3;
-    std::tie(gain, b3, a3) = butter_lp<3>(SAMPLE_RATE, 1000);
+    std::tie(gain, b3, a3) = butter_lp<3>(SAMPLE_RATE, 10240);
     iir_filter<3> lock_filter(gain, b3, a3);
 
     struct process_wavingz {
@@ -91,6 +91,7 @@ main(int argc, char** argv)
     // the samples will be converted to symbols
     wavingz::demod_sm::sample_sm_t samples_sm(SAMPLE_RATE, symbols_sm);
 
+    double omega_c = 0;
     while (!cin.eof()) {
         double re, im;
         if (unsigned_input)
@@ -111,15 +112,15 @@ main(int argc, char** argv)
         double f = demod(re, im);
         double s = freq_filter(f);
         double lock_freq = lock_filter(f);
-        double omega_c = lock_freq;
         boost::optional<bool> sample;
 
         // check for signal, adjust central freq, and get sample
         if(fabs(lock_freq) > 0.01)
         {
-            if (sample == boost::none) omega_c = lock_freq;
-            if (!samples_sm.bitlock()) omega_c = 0.95 * omega_c + 0.05 * lock_freq;
+            if (samples_sm.idle()) omega_c = lock_freq;
             sample = (s - omega_c) < 0;
+            if (samples_sm.preamble()) omega_c = 0.95 * omega_c + lock_freq * 0.05;
+            // std::cout << *sample << std::endl;
         }
         else
         {

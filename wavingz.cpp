@@ -160,7 +160,7 @@ lead_in_t::process(sample_sm_t& ctx, const boost::optional<bool>& sample)
         // skip the first few samples to synchronize
         if (*sample != last_sample)
         {
-            if (counter++ == 10)
+            if (++counter == 10)
             {
                 ctx.state(std::unique_ptr<preamble_t>(new preamble_t(*sample)));
             }
@@ -189,9 +189,8 @@ preamble_t::process(sample_sm_t& ctx, const boost::optional<bool>& sample)
             ++symbols_counter;
             if (symbols_counter == SYNC_SYMBOLS)
             {
-                double sps = double(samples_counter) / symbols_counter;
+                double sps = double(samples_counter) / (symbols_counter);
                 double data_rate = ctx.sample_rate / sps;
-                ctx.bitlock(true);
                 ctx.state(std::unique_ptr<bitlock_t>(new bitlock_t(sps)));
             }
         }
@@ -205,7 +204,6 @@ bitlock_t::process(sample_sm_t& ctx, const boost::optional<bool>& sample)
     // On no signal, return to idle
     if (sample == boost::none)
     {
-        ctx.bitlock(false);
         ctx.emit(boost::none);
         ctx.state(std::unique_ptr<idle_t>(new idle_t()));
     }
