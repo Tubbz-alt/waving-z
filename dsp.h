@@ -241,8 +241,8 @@ struct iir_filter
       : gain_m(gain)
       , b_m(b)
       , a_m(a)
-      , xv_m(ORDER + 1)
-      , yv_m(ORDER + 1)
+      , xv_m(ORDER + 1, 0)
+      , yv_m(ORDER + 1, 0)
     {
         assert(a[0] == 1.0);
         for (size_t ii(0); ii != (ORDER + 1) / 2; ++ii)
@@ -258,12 +258,11 @@ struct iir_filter
     double operator()(double in)
     {
         xv_m.push_front(in);
-        yv_m.push_front(0.0);
-        yv_m[0] =
-          std::inner_product(xv_m.begin(), xv_m.end(), b_m.begin(), 0.0) *
-            gain_m -
-          std::inner_product(yv_m.begin(), yv_m.end(), a_m.begin(), 0.0);
-        return yv_m[0];
+        double yvn =
+            gain_m * std::inner_product(xv_m.begin(), xv_m.end(), b_m.begin(), 0.0) -
+            std::inner_product(yv_m.begin(), yv_m.end(), a_m.begin() + 1, 0.0);
+        yv_m.push_front(yvn);
+        return yvn;
     }
 
   private:
