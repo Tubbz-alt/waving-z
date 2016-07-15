@@ -5,25 +5,43 @@ This program is able to encode and decode ITU G.9959 frames
 RTL-SDR dongle or an HackRF One (or any other radio handling raw IQ
 files).
 
-### Example command line for the EU frequency 
+## Build
 
-    rtl_sdr -f 868440000 -s 2048000 -g 25  - |./rtl_zwave
+    mkdir build
+    cd build
+    cmake .. -DCMAKE_BUILD_TYPE=Release
+    cmake --build .
 
+## Example command lines for the EU frequency
+
+The tools use the standard input and output to retrieve and generate
+the data.
+
+### Receive
+
+Receive and decode z-wave packages using `rtl_srd` and `wave-in`
+
+    $ rtl_sdr -f 868420000 -s 2000000 -g 25  - | ./wave-in -u
+
+### Transmit
+
+Encode and transmit z-wave packages using `wave-out` and
+`hackrf_transfer`
+
+
+    $ ./wave-out -p 'd6 b2 62 08 01 41 03 0d 07 25 01 00 9c' > turn_off_device_3.cs8
+    $ hackrf_transfer -f 868420000 -s 2000000 -t turn_off.cs8
 
 ## Modulator details
 
 The modulator is a simple FSK modulator. The modulator is phase
-continuous using a simple trick (the sampling rate frequencies are multiples of the
-sampling rate, makeing the modulator magically phase continuous)
+continuous using a simple trick (the sampling rate, baud rate, and
+separation are in phase).
 
-"FSK measurements often require spans which are much larger than the
-symbol rate because of large deviations inherent in many FSK
-signals. The wide span may result in a noisy demodulated signal. The
-low pass filter is a type of narrow, Gaussian filter (Gaussian shape
-in the frequency domain) with a cutoff frequency greater than the
-symbol rate. The filter has a 3 dB point of approximately 2/3 of the
-symbol rate and is down by 40 dB at about 2x the symbol rate. Applying
-the low pass filter to the measured signal may smooth the result."
+## Demodulator details
 
-http://rfmw.em.keysight.com/wireless/helpfiles/89600b/webhelp/subsystems/digdemod/content/dlg_digdemod_fltr_lowpass.htm
-hackrf_transfer -f 868468000 -s 2000000 -x 20 -R -t mod-new
+The demodulator is based on
+https://github.com/andersesbensen/rtl-zwave and consists of an atan
+demodulator and 2 nested state machines, the first one (`sample_sm`)
+converts the samples into symbols and the second one (`symbol_sm`) the
+bits into frame information and payload.
