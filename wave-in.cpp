@@ -54,6 +54,14 @@ main(int argc, char** argv)
 
     if (vm.count("help")) {
         cout << desc << "\n";
+        cout << "\n";
+        cout << "Examples:" << "\n";
+        cout << "\n";
+        cout << "   rtl_sdr -f 868420000 -s 2000000 -g 15 - | ./wave-in -s 2000000 -u" << "\n";
+        cout << "\n";
+        cout << "   hackrf_transfer -f 868420000 -s 2000000 -r data.cs8" << "\n";
+        cout << "   ./wave-in -s 2000000 -u < data.cs8" << "\n";
+        cout << "\n";
         return 1;
     }
 
