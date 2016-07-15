@@ -19,45 +19,34 @@
 // FSK @40000bps, NZR, Separation=40KHz
 
 #include "wavingz.h"
-#include <boost/program_options.hpp>
 
-#include <cmath>
 #include <vector>
-#include <iostream>
-#include <algorithm>
-#include <functional>
 #include <cstdio>
 #include <cstdint>
-#include <complex>
-#include <unistd.h>
-#include <iostream>
 #include <iomanip>
-#include <chrono>
 #include <cassert>
 #include <sstream>
+#include <iostream>
 
-const uint8_t SourceID = 0x01; // The source id is usually 1
-const uint8_t FC0 = 0x41;      // Frame control byte 0
-const uint8_t FC1 = 0x05;      // Frame control byte 1
+#include <boost/program_options.hpp>
 
 using namespace std;
 namespace po = boost::program_options;
 
-
 int
 main(int argc, char* argv[])
 {
-    std::string homeid_hex;
-    int destid;
     std::string payload;
+    size_t sample_rate;
+    size_t baud_rate;
 
     po::options_description desc("WavingZ - Wave-out options");
     desc.add_options()
-        ("help", "Produce this help message")
-        ("homeid", po::value<std::string>(&homeid_hex), "The user home id in (hex format without 0x)")
-        ("destid", po::value<int>(&destid), "The desired destination id (decimal)")
-        ("packet", po::value<std::string>(&payload), "Payload to send (hex format without 0x)")
-        ("unsigned", "Produce uint8 output instead if int8")
+        ("help,h", "Produce this help message")
+        ("payload,p", po::value<std::string>(&payload), "Payload in format 01 23 45 67 89 AB CD EF ..")
+        ("sample_rate,s", po::value<size_t>(&sample_rate)->default_value(2000000), "Sample rate (default 2M)")
+        ("baud_rate,b", po::value<size_t>(&baud_rate)->default_value(40000), "Baudrate (default 40kbaud)")
+        ("unsigned,u", "Produce uint8 output instead if int8")
        ;
 
     po::variables_map vm;
@@ -66,56 +55,54 @@ main(int argc, char* argv[])
 
     if (vm.count("help")) {
         cerr << desc << "\n";
-        return 1;
+        cerr << "\n";
+        cerr << "Example:\n";
+        cerr << "  HomeId:       0xD6B26208\n";
+        cerr << "  SourceId:     0x01\n";
+        cerr << "  FrameControl: 0x410F\n";
+        cerr << "  Length:       0x0D\n (13 Bytes)";
+        cerr << "  DestId:       0x03\n";
+        cerr << "  CommandClass: 0x25\n (SwitchBinary)";
+        cerr << "  Payload:      0x01 0xFF 0x6B\n";
+        cerr << "\n";
+        cerr << "     wave-out -p 'd6 b2 62 08 01 41 0f 0d 03 25 01 ff 6b'\n";
+        cerr << "\n";
+        cerr << "  The Frame Check Sequence (8bit) is added automatically.\n";
+        cerr << "\n";
+        return EXIT_SUCCESS;
     }
 
-    uint32_t homeid;
-    if (!vm.count("homeid")) {
-        cerr << "HomeID is mandatory." << std::endl;
-        return -1;
-    } else {
-        std::stringstream interpreter;
-        interpreter << std::hex << vm["homeid"].as<std::string>();
-        interpreter >> homeid;
-    }
-
-    if (!vm.count("destid")) {
-        cerr << "DestinationID is mandatory." << std::endl;
-        return -1;
-    }
-
-    std::cerr << std::hex << homeid << " " << destid << std::endl;
-
-    // Create wavingz buffer
     std::vector<uint8_t> buffer;
-    buffer.push_back(homeid >> 24);
-    buffer.push_back(homeid >> 16 & 0xff);
-    buffer.push_back(homeid >> 8 & 0xff);
-    buffer.push_back(homeid & 0xff);
-    buffer.push_back(SourceID);
-    buffer.push_back(FC0);
-    buffer.push_back(FC1);
-    buffer.push_back(13); // length
-    buffer.push_back((uint8_t)destid);
-    buffer.push_back(37);
-    buffer.push_back(0x01);
-    buffer.push_back(0x00);
-    buffer.push_back(0x9e);
+    if (!vm.count("payload"))
+    {
+        cerr << "Payload is mandatory." << std::endl;
+        return EXIT_FAILURE;
+    }
+    else
+    {
+        std::stringstream interpreter(payload);
+        while (interpreter) {
+            int ch;
+            interpreter >> std::hex >> ch;
+            if(!interpreter) break;
+            buffer.push_back((uint8_t)ch);
+        }
+    }
     buffer.push_back(wavingz::checksum(buffer.begin(), buffer.end()));
+
+    wavingz::zwave_print(std::cerr, &buffer.front(), &buffer.front()+buffer.size()) << std::endl;
 
     // encode and output wavingz buffer
     if(vm.count("unsigned"))
     {
-        auto complex_bytes = wavingz::encode<uint8_t>(buffer.begin(), buffer.end());
-        for(auto pair: complex_bytes)
-            std::cout << pair.first << pair.second;
+        auto complex_bytes = wavingz::encode<uint8_t>(sample_rate, baud_rate, buffer.begin(), buffer.end());
+        for (auto pair : complex_bytes) std::cout << pair.first << pair.second;
     }
     else
     {
-        auto complex_bytes = wavingz::encode<int8_t>(buffer.begin(), buffer.end());
-        for(auto pair: complex_bytes)
-            std::cout << pair.first << pair.second;
+        auto complex_bytes = wavingz::encode<int8_t>(sample_rate, baud_rate, buffer.begin(), buffer.end());
+        for (auto pair : complex_bytes) std::cout << pair.first << pair.second;
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }

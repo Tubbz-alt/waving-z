@@ -27,11 +27,8 @@
 #include <cstdio>
 #include <cstdint>
 #include <complex>
-#include <unistd.h>
-#include <iostream>
 #include <cassert>
-#include <functional>
-#include <algorithm>
+#include <iostream>
 
 #include <boost/optional.hpp>
 #include <boost/program_options.hpp>
@@ -42,11 +39,13 @@ namespace po = boost::program_options;
 int
 main(int argc, char** argv)
 {
+    size_t sample_rate;
+
     po::options_description desc("WavingZ - Wave-in options");
     desc.add_options()
-        ("help", "Produce this help message")
-        ("unsigned", "Use unsigned8 (RTL-SDR) instead of signed8 (HackRF One)")
-        ("debug", "Produce debug output")
+        ("help,h", "Produce this help message")
+        ("sample_rate,s", po::value<size_t>(&sample_rate)->default_value(2000000), "Sample rate (default 2M)")
+        ("unsigned,u", "Use unsigned8 (RTL-SDR) instead of signed8 (HackRF One)")
        ;
 
     po::variables_map vm;
@@ -63,14 +62,12 @@ main(int argc, char** argv)
     struct process_wavingz {
         void operator()(uint8_t* begin, uint8_t*end)
         {
-            wavingz::zwave_print(begin, end);
+            wavingz::zwave_print(std::cout, begin, end) << std::endl;
         }
     } wave_callback;
 
-    const int sample_rate = 2048000;
     wavingz::demod::demod_nrz wavein(sample_rate, wave_callback);
-    size_t counter = 0;
-    double omega_c = 0;
+
     for(;;) {
         std::complex<double> iq;
         char ii, qq;

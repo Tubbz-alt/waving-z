@@ -85,7 +85,7 @@ struct packet_t
 
 static_assert(sizeof(packet_t) == 10, "Assumption broken");
 
-/// CRC8 Checksum calculator
+/// Frame Check Sequence Calculator
 template <typename T>
 typename std::iterator_traits<T>::value_type
 checksum(T begin, T end)
@@ -138,36 +138,39 @@ struct complex8_convert
 };
 
 /// Encode the payload into an IQ signal (cu8 or cs8 depending on Byte type)
-template <typename Byte, typename It, size_t SAMPLE_RATE = 2000000,
-          size_t baud = 40000>
+template <typename Byte, typename It>
 std::vector<std::pair<Byte, Byte>>
-    encode(It payload_begin, It payload_end, double A = 100)
+encode(size_t sample_rate, size_t baud_rate, It payload_begin, It payload_end,
+       double A = 100, double silence = 1.0)
 {
     constexpr size_t dfreq = 20000;
     constexpr uint8_t preamble = 0x55; // 10101010...10101010 frame preamble
     constexpr uint8_t SOF = 0xF0;      // Start of frame mark
-    constexpr double f0_mul = .5;
+    constexpr double f0_mul = 0.5;
     constexpr double f1_mul = 2.5;
-    static_assert(SAMPLE_RATE % baud == 0,
-                  "Sample rate needs to be a multiple of baud rate");
-    static_assert(dfreq * (int)(f1_mul - f0_mul) % baud == 0,
-                  "Phase coherency rule not satisfied");
-    static_assert(f1_mul - f0_mul == 2.0,
-                  "The Frequency shift should be 40KHz");
-    constexpr size_t Ts = SAMPLE_RATE / baud;
+    const size_t Ts = sample_rate / baud_rate;
+
+    if (std::abs(sin(2.0 * M_PI * dfreq * f0_mul * (double)Ts / sample_rate) -
+                 sin(2.0 * M_PI * dfreq * f1_mul * (double)Ts / sample_rate)) > 1e-12)
+    {
+        throw std::runtime_error(
+          "Please choose sample_rate and baud_rate so "
+          "that the resulting phase will be coherent "
+          "with the (1/2) separation frequency (20KHz).");
+    }
 
     std::vector<std::pair<Byte, Byte>> iq;
 
     double gain;
     std::array<double, 7> a1, b1;
-    std::tie(gain, b1, a1) = butter_lp<6>(SAMPLE_RATE, f1_mul * dfreq * 2.5);
+    std::tie(gain, b1, a1) = butter_lp<6>(sample_rate, f1_mul * dfreq * 2.5);
     iir_filter<6> lp1(gain, b1, a1);
     auto lp2 = lp1;
 
     complex8_convert<Byte> convert_iq(A);
 
-    // .01" silence
-    for (int ii(0); ii != SAMPLE_RATE / 100; ++ii) {
+    // .001" silence
+    for (int ii(0); ii != sample_rate / 1000; ++ii) {
         iq.emplace_back(convert_iq(lp1(0.0), lp2(0.0)));
     }
 
@@ -179,9 +182,9 @@ std::vector<std::pair<Byte, Byte>>
             (((preamble << (ii % 8)) & 0x80) ? f1_mul : f0_mul) * dfreq;
         for (int kk(0); kk != Ts; ++kk) {
             double i =
-              lp1(sin(2.0 * M_PI * f_shift * (double)tt / SAMPLE_RATE));
+              lp1(sin(2.0 * M_PI * f_shift * (double)tt / sample_rate));
             double q =
-              lp2(cos(2.0 * M_PI * f_shift * (double)tt / SAMPLE_RATE));
+              lp2(cos(2.0 * M_PI * f_shift * (double)tt / sample_rate));
             iq.emplace_back(convert_iq(i, q));
             ++tt;
         }
@@ -192,9 +195,9 @@ std::vector<std::pair<Byte, Byte>>
         double f_shift = (((SOF << ii) & 0x80) ? f1_mul : f0_mul) * dfreq;
         for (int kk(0); kk != Ts; ++kk) {
             double i =
-              lp1(sin(2.0 * M_PI * f_shift * (double)tt / SAMPLE_RATE));
+              lp1(sin(2.0 * M_PI * f_shift * (double)tt / sample_rate));
             double q =
-              lp2(cos(2.0 * M_PI * f_shift * (double)tt / SAMPLE_RATE));
+              lp2(cos(2.0 * M_PI * f_shift * (double)tt / sample_rate));
             iq.emplace_back(convert_iq(i, q));
             ++tt;
         }
@@ -206,17 +209,18 @@ std::vector<std::pair<Byte, Byte>>
             double f_shift = (((*ch << ii) & 0x80) ? f1_mul : f0_mul) * dfreq;
             for (int kk(0); kk != Ts; ++kk) {
                 double i =
-                  lp1(sin(2.0 * M_PI * f_shift * (double)tt / SAMPLE_RATE));
+                  lp1(sin(2.0 * M_PI * f_shift * (double)tt / sample_rate));
                 double q =
-                  lp2(cos(2.0 * M_PI * f_shift * (double)tt / SAMPLE_RATE));
+                  lp2(cos(2.0 * M_PI * f_shift * (double)tt / sample_rate));
                 iq.emplace_back(convert_iq(i, q));
                 ++tt;
             }
         }
     }
 
-    // 1" silence (it seems that this is needed by HackRF One)
-    for (int ii(0); ii != (int)SAMPLE_RATE; ++ii) {
+    // silence at the end (it seems that more or less 1" is needed by the HackRF
+    // One to complete transmission?)
+    for (int ii(0); ii != int(silence*sample_rate); ++ii) {
         iq.emplace_back(convert_iq(lp1(0.0), lp2(0.0)));
     }
     return iq;
@@ -224,39 +228,44 @@ std::vector<std::pair<Byte, Byte>>
 
 /// Debug print a packet
 template <typename It>
-inline void
-zwave_print(It data_begin, It data_end)
+inline std::ostream&
+zwave_print(std::ostream& out, It data_begin, It data_end)
 {
     size_t len = data_end - data_begin;
     packet_t& p = *(packet_t*)data_begin;
-    if (len < sizeof(packet_t) || len < p.length+1 ||
-        checksum(data_begin, data_begin + (size_t)p.length) != data_begin[p.length])
+    if (len < sizeof(packet_t) || len < p.length+1)
     {
-        std::cout << "[ ] ";
+        out << "[ ] ";
+        return out;
+    }
+    else if (checksum(data_begin, data_begin + (size_t)p.length) !=
+             data_begin[p.length])
+    {
+        out << "[ ] ";
     }
     else
     {
-        std::cout << "[x] ";
+        out << "[x] ";
     }
-    std::cout << std::hex << std::setfill('0') << std::setw(2)
-              << "HomeId: " << ((uint32_t)p.home_id3 | p.home_id2 << 8 |
-                                p.home_id1 << 16 | p.home_id0 << 24)
-              << ", SourceNodeId: " << (int)p.source_node_id << std::hex
-              << ", FC0: " << (int)p.fc0 << ", FC1: " << (int)p.fc1 << std::dec
-              << ", FC[speed=" << p.frame_control_0.speed
-              << " low_power=" << p.frame_control_0.low_power
-              << " ack_request=" << p.frame_control_0.ack_request
-              << " header_type=" << p.frame_control_0.header_type
-              << " beaming_info=" << p.frame_control_1.beaming_info
-              << " seq=" << p.frame_control_1.sequence_number
-              << "], Length: " << std::dec << (int)p.length
-              << ", DestNodeId: " << std::dec << (int)p.dest_node_id
-              << ", CommandClass: " << std::hex << (int)p.command_class
-              << ", Payload: " << std::hex << std::setfill('0');
+    out << std::hex << std::setfill('0') << std::setw(2)
+        << "HomeId: " << ((uint32_t)p.home_id3 | p.home_id2 << 8 |
+                          p.home_id1 << 16 | p.home_id0 << 24)
+        << ", SourceNodeId: " << (int)p.source_node_id << std::hex
+        << ", FC0: " << (int)p.fc0 << ", FC1: " << (int)p.fc1 << std::dec
+        << ", FC[speed=" << p.frame_control_0.speed
+        << " low_power=" << p.frame_control_0.low_power
+        << " ack_request=" << p.frame_control_0.ack_request
+        << " header_type=" << p.frame_control_0.header_type
+        << " beaming_info=" << p.frame_control_1.beaming_info
+        << " seq=" << p.frame_control_1.sequence_number
+        << "], Length: " << std::dec << (int)p.length
+        << ", DestNodeId: " << std::dec << (int)p.dest_node_id
+        << ", CommandClass: " << std::hex << (int)p.command_class
+        << ", Payload: " << std::hex << std::setfill('0');
     for (int i = sizeof(packet_t); i < p.length; i++) {
-        std::cout << std::setw(2) << (int)data_begin[i] << " ";
+        out << std::setw(2) << (int)data_begin[i] << " ";
     }
-    std::cout << std::endl;
+    return out;
 }
 
 // demodulation state machine
@@ -404,8 +413,8 @@ struct demod_nrz
               std::function<void(uint8_t* begin, uint8_t* end)> packet_callback)
         : lp1(butter_lp<6>(sample_rate, 150000))
         , lp2(butter_lp<6>(sample_rate, 150000))
-        , freq_filter(butter_lp<3>(sample_rate, 90000))
-        , lock_filter(butter_lp<3>(sample_rate, 1000))
+        , freq_filter(butter_lp<3>(sample_rate, 50000))
+        , lock_filter(butter_lp<3>(sample_rate, 750))
         , symbols_sm(packet_callback)
         , samples_sm(sample_rate, symbols_sm)
 
@@ -421,7 +430,7 @@ struct demod_nrz
         boost::optional<bool> sample;
 
         // check for signal, adjust central freq, and get sample
-        bool signal = std::abs(lock_freq) > 0.04;
+        bool signal = std::abs(lock_freq) > 0.01;
         if(signal)
         {
             if (samples_sm.idle()) omega_c = lock_freq;
