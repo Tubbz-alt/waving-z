@@ -381,10 +381,10 @@ struct sample_sm_t
     void process(const boost::optional<bool>& sample);
     void state(std::unique_ptr<sample_sm::state_base_t>&& next_state);
     bool preamble() { return
-            typeid(current_state_m.get()) == typeid(sample_sm::preamble_t) ||
-            typeid(current_state_m.get()) == typeid(sample_sm::lead_in_t);
+            typeid(*current_state_m.get()) == typeid(sample_sm::preamble_t) ||
+            typeid(*current_state_m.get()) == typeid(sample_sm::lead_in_t);
     }
-    bool idle() { return typeid(current_state_m.get()) == typeid(sample_sm::idle_t); }
+    bool idle() { return typeid(*current_state_m.get()) == typeid(sample_sm::idle_t); }
     void emit(const boost::optional<bool>& symbol);
     const size_t sample_rate;
 private:
