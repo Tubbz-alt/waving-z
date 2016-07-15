@@ -7,10 +7,10 @@ files).
 
 ## Build
 
-    mkdir build
-    cd build
-    cmake .. -DCMAKE_BUILD_TYPE=Release
-    cmake --build .
+     mkdir build
+     cd build
+     cmake .. -DCMAKE_BUILD_TYPE=Release
+     cmake --build .
 
 
 ## Prerequisites
@@ -27,23 +27,28 @@ the data.
 
 Read the docs with:
 
-    $ ./wave-in --help
+     $ ./wave-in --help
 
 Receive and decode z-wave packages using `rtl_srd` and `wave-in`.
 
-    $ rtl_sdr -f 868420000 -s 2000000 -g 25  - | ./wave-in -u
+     $ rtl_sdr -f 868420000 -s 2000000 -g 25  - | ./wave-in -u
 
 ### Transmit
 
 Read the docs with:
 
-    $ ./wave-out --help
+     $ ./wave-out --help
 
 Encode and transmit z-wave packages using `wave-out` and
 `hackrf_transfer`.
 
-    $ ./wave-out -p 'd6 b2 62 08 01 41 03 0d 07 25 01 00 9c' > turn_off_device_7.cs8
-    $ hackrf_transfer -f 868420000 -s 2000000 -t turn_off.cs8
+     $ #              HomeId      SourceID FrameCtl LEN DestID CommandClass Command
+     $ #              +---------+            +----+                           +---+
+     $ ./wave-out -p 'd6 b2 62 08       01   41  03  0d     07           25   01 ff' > turn_on_device_7.cs8
+     $ #              HomeId      SourceID FrameCtl LEN DestID CommandClass Command
+     $ #              +---------+            +----+                           +---+
+     $ ./wave-out -p 'd6 b2 62 08       01   41  03  0d     07           25   01 00' > turn_off_device_7.cs8
+     $ hackrf_transfer -f 868420000 -s 2000000 -t turn_off_device_7.cs8
 
 ## Modulator details
 
