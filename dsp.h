@@ -34,6 +34,7 @@
 #include <memory>
 #include <vector>
 #include <array>
+#include <tuple>
 #include <cmath>
 
 namespace
@@ -212,10 +213,10 @@ struct atan_fm_demodulator
       : s1(0)
     {
     }
+
     /// Q&I
-    double operator()(double re, double im)
+    double operator()(const std::complex<double>& s)
     {
-        std::complex<double> s(re, im);
         double d = std::arg(std::conj(s1) * s);
         s1 = s;
         return d;
@@ -247,6 +248,16 @@ struct iir_filter
         assert(a[0] == 1.0);
         for (size_t ii(0); ii != (ORDER + 1) / 2; ++ii)
             assert(b[ii] == b[b.size() - ii - 1]);
+    }
+
+    ///
+    /// Creates the filter.
+    ///
+    /// @param tuple(gain, b, a) as returned by the butter_lp function
+    ///
+    explicit iir_filter(const std::tuple< double, std::array<double, ORDER + 1>, std::array<double, ORDER + 1> >& params)
+        : iir_filter(std::get<0>(params), std::get<1>(params), std::get<2>(params))
+    {
     }
 
     ///

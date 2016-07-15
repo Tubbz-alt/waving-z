@@ -97,6 +97,10 @@ checksum(T begin, T end)
 template <typename Byte>
 struct complex8_convert
 {
+    complex8_convert(double A)
+      : A_m(A)
+    {
+    }
     std::pair<Byte, Byte> operator()(double i, double q)
     {
         check_range(i, q);
@@ -130,14 +134,14 @@ struct complex8_convert
     {
         return std::make_pair((Byte)(i * A_m), (Byte)(q * A_m));
     }
-    const double A_m = 100.0;
+    const double A_m;
 };
 
 /// Encode the payload into an IQ signal (cu8 or cs8 depending on Byte type)
 template <typename Byte, typename It, size_t SAMPLE_RATE = 2000000,
           size_t baud = 40000>
 std::vector<std::pair<Byte, Byte>>
-encode(It payload_begin, It payload_end)
+    encode(It payload_begin, It payload_end, double A = 100)
 {
     constexpr size_t dfreq = 20000;
     constexpr uint8_t preamble = 0x55; // 10101010...10101010 frame preamble
@@ -155,12 +159,12 @@ encode(It payload_begin, It payload_end)
     std::vector<std::pair<Byte, Byte>> iq;
 
     double gain;
-    std::array<double, 5> a1, b1;
-    std::tie(gain, b1, a1) = butter_lp<4>(SAMPLE_RATE, f1_mul * dfreq * 2.5);
-    iir_filter<4> lp1(gain, b1, a1);
+    std::array<double, 7> a1, b1;
+    std::tie(gain, b1, a1) = butter_lp<6>(SAMPLE_RATE, f1_mul * dfreq * 2.5);
+    iir_filter<6> lp1(gain, b1, a1);
     auto lp2 = lp1;
 
-    complex8_convert<Byte> convert_iq;
+    complex8_convert<Byte> convert_iq(A);
 
     // .01" silence
     for (int ii(0); ii != SAMPLE_RATE / 100; ++ii) {
@@ -256,9 +260,10 @@ zwave_print(It data_begin, It data_end)
 }
 
 // demodulation state machine
-namespace demod_sm
+namespace demod
 {
-
+namespace state_machine
+{
 struct symbol_sm_t;
 
 // -----------------------------------------------------------------------------
@@ -390,6 +395,50 @@ struct sample_sm_t
 private:
     std::reference_wrapper<symbol_sm_t> sym_sm;
     std::unique_ptr<sample_sm::state_base_t> current_state_m;
+};
+} // namespace
+
+struct demod_nrz
+{
+    demod_nrz(size_t sample_rate,
+              std::function<void(uint8_t* begin, uint8_t* end)> packet_callback)
+        : lp1(butter_lp<6>(sample_rate, 150000))
+        , lp2(butter_lp<6>(sample_rate, 150000))
+        , freq_filter(butter_lp<3>(sample_rate, 90000))
+        , lock_filter(butter_lp<3>(sample_rate, 1000))
+        , symbols_sm(packet_callback)
+        , samples_sm(sample_rate, symbols_sm)
+
+    {
+    }
+
+    void operator()(std::complex<double> iq)
+    {
+        iq = std::complex<double>(lp1(iq.real()), lp2(iq.imag()));
+        double f = fsk_demod(iq);
+        double s = freq_filter(f);
+        double lock_freq = lock_filter(f);
+        boost::optional<bool> sample;
+
+        // check for signal, adjust central freq, and get sample
+        bool signal = std::abs(lock_freq) > 0.04;
+        if(signal)
+        {
+            if (samples_sm.idle()) omega_c = lock_freq;
+            sample = (s - omega_c) < 0.0;
+            if (samples_sm.preamble()) omega_c = 0.95 * omega_c + lock_freq * 0.05;
+        }
+        // process the sample with the state machine
+        samples_sm.process(sample);
+    }
+
+    atan_fm_demodulator fsk_demod;
+    iir_filter<6> lp1, lp2;
+    iir_filter<3> freq_filter;
+    iir_filter<3> lock_filter;
+    state_machine::symbol_sm_t symbols_sm;
+    state_machine::sample_sm_t samples_sm;
+    double omega_c = 0.0;
 };
 
 } // namespace

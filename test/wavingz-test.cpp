@@ -1,4 +1,7 @@
 #include "../dsp.h"
+#include "../wavingz.h"
+
+#include <random>
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE MyTest
@@ -62,4 +65,78 @@ BOOST_AUTO_TEST_CASE(test_iir_filter)
         BOOST_CHECK_CLOSE(response[counter], lp(signal[counter]), 1e-12);
         counter++;
     }
+}
+
+BOOST_AUTO_TEST_CASE(test_encode_decode)
+{
+
+    std::vector<uint8_t> buffer = { 0xd2, 0xd6, 0x33, 0x22, 0xAA, 0x55, 13, 0xFF, 0x00, 0xFF, 0x00, 0x9f };
+    buffer.push_back(wavingz::checksum(buffer.begin(), buffer.end()));
+
+    bool called = false;
+    auto wave_callback = [&](uint8_t* begin, uint8_t* end)
+    {
+        called = true;
+        BOOST_CHECK(end-begin >= 13); // we may have some more noisy bytes in the end
+        BOOST_CHECK_EQUAL_COLLECTIONS(begin, begin+begin[6], buffer.begin(), buffer.end());
+    };
+
+    wavingz::demod::demod_nrz zwave(2048000, wave_callback);
+    auto complex_bytes1 = wavingz::encode<int8_t>(buffer.begin(), buffer.end());
+    for(auto pair: complex_bytes1)
+    {
+        zwave(std::complex<double>(double(pair.first)/127.0, double(pair.second)/127.0));
+    }
+    BOOST_CHECK(called);
+}
+
+BOOST_AUTO_TEST_CASE(test_encode_decode_low_power)
+{
+
+    std::vector<uint8_t> buffer = { 0xd2, 0xd6, 0x33, 0x22, 0xAA, 0x55, 13, 0xFF, 0x00, 0xFF, 0x00, 0x9f };
+    buffer.push_back(wavingz::checksum(buffer.begin(), buffer.end()));
+
+    bool called = false;
+    auto wave_callback = [&](uint8_t* begin, uint8_t* end)
+    {
+        called = true;
+        BOOST_CHECK(end-begin >= 13); // we may have some more noisy bytes in the end
+        BOOST_CHECK_EQUAL_COLLECTIONS(begin, begin+begin[6], buffer.begin(), buffer.end());
+    };
+
+    wavingz::demod::demod_nrz zwave(2048000, wave_callback);
+    auto complex_bytes1 = wavingz::encode<int8_t>(buffer.begin(), buffer.end(), 5.0);
+    for(auto pair: complex_bytes1)
+    {
+        zwave(std::complex<double>(double(pair.first)/127.0, double(pair.second)/127.0));
+    }
+    BOOST_CHECK(called);
+}
+
+BOOST_AUTO_TEST_CASE(test_encode_decode_noise)
+{
+
+    std::vector<uint8_t> buffer = { 0xd2, 0xd6, 0x33, 0x22, 0xAA, 0x55, 13, 0xFF, 0x00, 0xFF, 0x00, 0x9f };
+    buffer.push_back(wavingz::checksum(buffer.begin(), buffer.end()));
+
+    bool called = false;
+    auto wave_callback = [&](uint8_t* begin, uint8_t* end)
+    {
+        called = true;
+        BOOST_CHECK(end-begin >= 13); // we may have some more noisy bytes in the end
+        BOOST_CHECK_EQUAL_COLLECTIONS(begin, begin+begin[6], buffer.begin(), buffer.end());
+    };
+
+    wavingz::demod::demod_nrz zwave(2048000, wave_callback);
+    auto complex_bytes1 = wavingz::encode<int8_t>(buffer.begin(), buffer.end());
+
+    std::default_random_engine g;
+    std::normal_distribution<double> gaussian_noise(0.0, 1.0);
+
+    for(auto pair: complex_bytes1)
+    {
+        zwave(std::complex<double>(0.1 * gaussian_noise(g) + 0.9 * double(pair.first)/127.0,
+                                   0.1 * gaussian_noise(g) + 0.9 * double(pair.second)/127.0));
+    }
+    BOOST_CHECK(called);
 }

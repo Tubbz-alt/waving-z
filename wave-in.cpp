@@ -60,24 +60,6 @@ main(int argc, char** argv)
 
     bool unsigned_input = vm.count("unsigned");
 
-    const int SAMPLE_RATE = 2048000;
-
-    atan_fm_demodulator demod;
-
-    double gain;
-    std::array<double, 4> a1, b1;
-    std::tie(gain, b1, a1) = butter_lp<3>(SAMPLE_RATE, 80000 * 2.5);
-    iir_filter<3> lp1(gain, b1, a1);
-    auto lp2 = lp1;
-
-    std::array<double, 4> a2, b2;
-    std::tie(gain, b2, a2) = butter_lp<3>(SAMPLE_RATE, 40000 * 2.5);
-    iir_filter<3> freq_filter(gain, b2, a2);
-
-    std::array<double, 4> a3, b3;
-    std::tie(gain, b3, a3) = butter_lp<3>(SAMPLE_RATE, 1200);
-    iir_filter<3> lock_filter(gain, b3, a3);
-
     struct process_wavingz {
         void operator()(uint8_t* begin, uint8_t*end)
         {
@@ -85,42 +67,26 @@ main(int argc, char** argv)
         }
     } wave_callback;
 
-    // the symbols will be converted to a payload (or fail)
-    wavingz::demod_sm::symbol_sm_t symbols_sm(wave_callback);
-    // the samples will be converted to symbols
-    wavingz::demod_sm::sample_sm_t samples_sm(SAMPLE_RATE, symbols_sm);
+    const int sample_rate = 2048000;
+    wavingz::demod::demod_nrz wavein(sample_rate, wave_callback);
     size_t counter = 0;
     double omega_c = 0;
     for(;;) {
-        double re, im;
+        std::complex<double> iq;
         char ii, qq;
         if(!cin.get(ii) || !cin.get(qq)) break;
         if (unsigned_input)
         {
-            re = double((uint8_t)ii)/127.0 - 1.0;
-            im = double((uint8_t)qq)/127.0 - 1.0;
+            iq.real(double((uint8_t)ii)/127.0 - 1.0);
+            iq.imag(double((uint8_t)qq) / 127.0 - 1.0);
         }
         else
         {
-            re = double(ii)/127.0;
-            im = double(qq)/127.0;
+            iq.real(double(ii)/127.0);
+            iq.imag(double(qq)/127.0);
         }
-        assert(std::abs(re) <= 1.0);
-        assert(std::abs(im) <= 1.0);
-        double f = demod(lp1(re), lp2(im));
-        double s = freq_filter(f);
-        double lock_freq = lock_filter(f);
-        boost::optional<bool> sample;
-        // check for signal, adjust central freq, and get sample
-        bool signal = fabs(lock_freq) > 0.015;
-        if(signal)
-        {
-            if (samples_sm.idle()) omega_c = lock_freq;
-            sample = (s - omega_c) < 0.0;
-            if (samples_sm.preamble()) omega_c = 0.95 * omega_c + lock_freq * 0.05;
-        }
-        // process the sample with the state machine
-        samples_sm.process(sample);
+        assert(std::abs(iq) <= 1.0);
+        wavein(iq);
     }
     return 0;
 }

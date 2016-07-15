@@ -24,7 +24,10 @@ namespace wavingz
 
 // demodulator state machine implementation
 
-namespace demod_sm
+namespace demod
+{
+
+namespace state_machine
 {
 
 void
@@ -226,7 +229,7 @@ bitlock_t::process(sample_sm_t& ctx, const boost::optional<bool>& sample)
         }
     }
 }
-
+} // namespace
 } // namespace
 } // namespace
 } // namespace
