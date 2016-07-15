@@ -231,15 +231,19 @@ template <typename It>
 inline std::ostream&
 zwave_print(std::ostream& out, It data_begin, It data_end)
 {
+    for(auto ch = data_begin; ch != data_end; ++ch)
+        out << std::hex << std::setfill('0') << std::setw(2) << (int)*ch << ' ';
+    out << std::endl;
+
     size_t len = data_end - data_begin;
     packet_t& p = *(packet_t*)data_begin;
-    if (len < sizeof(packet_t) || len < p.length+1)
+    if (len < sizeof(packet_t) || len < p.length)
     {
         out << "[ ] ";
         return out;
     }
-    else if (checksum(data_begin, data_begin + (size_t)p.length) !=
-             data_begin[p.length])
+    else if (checksum(data_begin, data_begin + (size_t)p.length - 1) !=
+             data_begin[p.length - 1])
     {
         out << "[ ] ";
     }
@@ -262,7 +266,7 @@ zwave_print(std::ostream& out, It data_begin, It data_end)
         << ", DestNodeId: " << std::dec << (int)p.dest_node_id
         << ", CommandClass: " << std::hex << (int)p.command_class
         << ", Payload: " << std::hex << std::setfill('0');
-    for (int i = sizeof(packet_t); i < p.length; i++) {
+    for (int i = sizeof(packet_t); i < p.length - 1; i++) {
         out << std::setw(2) << (int)data_begin[i] << " ";
     }
     return out;
