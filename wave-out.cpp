@@ -60,9 +60,9 @@ main(int argc, char* argv[])
         cerr << "  HomeId:       0xD6B26208\n";
         cerr << "  SourceId:     0x01\n";
         cerr << "  FrameControl: 0x410F\n";
-        cerr << "  Length:       0x0D\n (13 Bytes)";
+        cerr << "  Length:       0x0D (13 Bytes)\n";
         cerr << "  DestId:       0x03\n";
-        cerr << "  CommandClass: 0x25\n (SwitchBinary)";
+        cerr << "  CommandClass: 0x25 (SwitchBinary)\n";
         cerr << "  Payload:      0x01 0xFF 0x6B\n";
         cerr << "\n";
         cerr << "     wave-out -p 'd6 b2 62 08 01 41 0f 0d 03 25 01 ff 6b'\n";
