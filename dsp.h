@@ -24,7 +24,10 @@
 #pragma once
 
 #include <boost/circular_buffer.hpp>
+#include <algorithm>
+#include <functional>
 #include <iostream>
+#include <numeric>
 #include <complex>
 #include <cstdlib>
 #include <cstdio>

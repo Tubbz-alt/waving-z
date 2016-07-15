@@ -25,7 +25,10 @@
 
 #include <bitset>
 #include <iomanip>
+#include <numeric>
 #include <iostream>
+#include <algorithm>
+#include <functional>
 
 namespace wavingz
 {
@@ -51,7 +54,7 @@ struct frame_control_1_t
 
 static_assert(sizeof(frame_control_1_t) == 1, "Assumption broken");
 
-/// Z-Wave compatible header
+/// Z-Wave compatible header (except for errors and omissions)
 ///
 /// We read byte by byte to be endianness agnostic; Network order is Big Endian,
 /// so in order to decode the HomeID we need to
@@ -378,10 +381,10 @@ struct sample_sm_t
     void process(const boost::optional<bool>& sample);
     void state(std::unique_ptr<sample_sm::state_base_t>&& next_state);
     bool preamble() { return
-            typeid(*current_state_m) == typeid(sample_sm::preamble_t) ||
-            typeid(*current_state_m) == typeid(sample_sm::lead_in_t);
+            typeid(current_state_m.get()) == typeid(sample_sm::preamble_t) ||
+            typeid(current_state_m.get()) == typeid(sample_sm::lead_in_t);
     }
-    bool idle() { return typeid(*current_state_m) == typeid(sample_sm::idle_t); }
+    bool idle() { return typeid(current_state_m.get()) == typeid(sample_sm::idle_t); }
     void emit(const boost::optional<bool>& symbol);
     const size_t sample_rate;
 private:
