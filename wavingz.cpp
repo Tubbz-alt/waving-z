@@ -55,10 +55,7 @@ start_of_frame_1_t::process(symbol_sm_t& ctx,
     }
     else
     {
-        if (*symbol)
-            ++cnt;
-        else
-            cnt = 0;
+        cnt = *symbol ? cnt + 1 : 0;
         if (cnt == 5) // we wait for 5 consecutive '1' (the last 1 of the
                       // preamble, plus the first nibble of the SOF)
         {
