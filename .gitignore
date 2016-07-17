@@ -1,4 +1,5 @@
 *~
-*.o
 build*/
-rtl_zwave
+*.bz2
+*.cu8
+*.cs8
