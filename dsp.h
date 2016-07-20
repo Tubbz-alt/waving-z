@@ -88,7 +88,7 @@ template <int ORDER>
 double
 sf_bwlp(double fcf)
 {
-    int m, k;      // loop variables
+    int k;         // loop variables
     double omega;  // M_PI * fcf
     double fomega; // function of omega
     double parg0;  // zeroth pole angle
@@ -98,7 +98,6 @@ sf_bwlp(double fcf)
     fomega = sin(omega);
     parg0 = M_PI / (double)(2 * ORDER);
 
-    m = ORDER / 2;
     sf = 1.0;
     for (k = 0; k < ORDER / 2; ++k)
         sf *= 1.0 + fomega * sin((double)(2 * k + 1) * parg0);

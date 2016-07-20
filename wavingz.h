@@ -137,94 +137,93 @@ struct complex8_convert
     const double A_m;
 };
 
-/// Encode the payload into an IQ signal (cu8 or cs8 depending on Byte type)
-template <typename Byte, typename It>
-std::vector<std::pair<Byte, Byte>>
-encode(size_t sample_rate, size_t baud_rate, It payload_begin, It payload_end,
-       double A = 100, double silence = 1.0)
+template< typename Byte >
+struct encoder
 {
-    constexpr size_t dfreq = 20000;
-    constexpr uint8_t preamble = 0x55; // 10101010...10101010 frame preamble
-    constexpr uint8_t SOF = 0xF0;      // Start of frame mark
-    constexpr double f0_mul = 0.5;
-    constexpr double f1_mul = 2.5;
-    const size_t Ts = sample_rate / baud_rate;
+    encoder(size_t sample_rate, size_t baud_rate, double A = 100.0)
+        : A(A)
+        , sample_rate(sample_rate)
+        , baud_rate(baud_rate), Ts(sample_rate / baud_rate)
+        , lp1(butter_lp<6>(sample_rate, f1_mul * dfreq * 2.5))
+        , lp2(butter_lp<6>(sample_rate, f1_mul * dfreq * 2.5))
 
-    if (std::abs(sin(2.0 * M_PI * dfreq * f0_mul * (double)Ts / sample_rate) -
-                 sin(2.0 * M_PI * dfreq * f1_mul * (double)Ts / sample_rate)) > 1e-12)
     {
-        throw std::runtime_error(
-          "Please choose sample_rate and baud_rate so "
-          "that the resulting phase will be coherent "
-          "with the (1/2) separation frequency (20KHz).");
-    }
-
-    std::vector<std::pair<Byte, Byte>> iq;
-
-    double gain;
-    std::array<double, 7> a1, b1;
-    std::tie(gain, b1, a1) = butter_lp<6>(sample_rate, f1_mul * dfreq * 2.5);
-    iir_filter<6> lp1(gain, b1, a1);
-    auto lp2 = lp1;
-
-    complex8_convert<Byte> convert_iq(A);
-
-    // .001" silence
-    for (int ii(0); ii != sample_rate / 1000; ++ii) {
-        iq.emplace_back(convert_iq(lp1(0.0), lp2(0.0)));
-    }
-
-    size_t tt = 0;
-
-    // preamble
-    for (size_t ii(0); ii != 160; ++ii) {
-        double f_shift =
-            (((preamble << (ii % 8)) & 0x80) ? f1_mul : f0_mul) * dfreq;
-        for (int kk(0); kk != Ts; ++kk) {
-            double i =
-              lp1(sin(2.0 * M_PI * f_shift * (double)tt / sample_rate));
-            double q =
-              lp2(cos(2.0 * M_PI * f_shift * (double)tt / sample_rate));
-            iq.emplace_back(convert_iq(i, q));
-            ++tt;
+        if (std::abs(sin(2.0 * M_PI * dfreq * f0_mul * (double)Ts / sample_rate) -
+                     sin(2.0 * M_PI * dfreq * f1_mul * (double)Ts / sample_rate)) > 1e-12)
+        {
+            throw std::runtime_error(
+                "Please choose sample_rate and baud_rate so "
+                "that the resulting phase will be coherent "
+                "with the (1/2) separation frequency (20KHz).");
         }
     }
 
-    // SOF
-    for (size_t ii(0); ii != 8; ++ii) {
-        double f_shift = (((SOF << ii) & 0x80) ? f1_mul : f0_mul) * dfreq;
-        for (int kk(0); kk != Ts; ++kk) {
-            double i =
-              lp1(sin(2.0 * M_PI * f_shift * (double)tt / sample_rate));
-            double q =
-              lp2(cos(2.0 * M_PI * f_shift * (double)tt / sample_rate));
-            iq.emplace_back(convert_iq(i, q));
-            ++tt;
+    /// Encode the payload into an IQ signal (cu8 or cs8 depending on Byte type)
+    template <typename It>
+    std::vector<std::pair<Byte, Byte>>
+    operator()(It payload_begin, It payload_end, double silence = 1.0)
+    {
+        constexpr uint8_t PREAMBLE = 0x55; // 10101010...10101010 frame preamble
+        constexpr uint8_t SOF = 0xF0;      // Start of frame mark
+
+        std::vector<std::pair<Byte, Byte>> iq;
+
+        // .001" silence
+        for (size_t ii(0); ii != sample_rate / 1000; ++ii) {
+            iq.emplace_back(convert_iq(lp1(0.0), lp2(0.0)));
         }
+
+        size_t sample = 0;
+
+        // preamble
+        for (size_t ii(0); ii != 20; ++ii) {
+            emplace_byte(PREAMBLE, sample, iq);
+        }
+
+        // SOF
+        emplace_byte(SOF, sample, iq);
+
+        // payload
+        for (It ch = payload_begin; ch != payload_end; ++ch) {
+            emplace_byte(*ch, sample, iq);
+        }
+
+        // silence at the end (it seems that more or less 1" is needed by the HackRF
+        // One to complete transmission?)
+        for (size_t ii(0); ii != size_t(silence*sample_rate); ++ii) {
+            iq.emplace_back(convert_iq(lp1(0.0), lp2(0.0)));
+        }
+        return iq;
     }
 
-    // payload
-    for (It ch = payload_begin; ch != payload_end; ++ch) {
+private:
+
+    void emplace_byte(char data, size_t& sample, std::vector<std::pair<Byte,Byte>>& iq)
+    {
         for (size_t ii(0); ii != 8; ++ii) {
-            double f_shift = (((*ch << ii) & 0x80) ? f1_mul : f0_mul) * dfreq;
-            for (int kk(0); kk != Ts; ++kk) {
+            double f_shift = (((data << ii) & 0x80) ? f1_mul : f0_mul) * dfreq;
+            for (size_t kk(0); kk != Ts; ++kk) {
                 double i =
-                  lp1(sin(2.0 * M_PI * f_shift * (double)tt / sample_rate));
+                    lp1(sin(2.0 * M_PI * f_shift * (double)sample / sample_rate));
                 double q =
-                  lp2(cos(2.0 * M_PI * f_shift * (double)tt / sample_rate));
+                    lp2(cos(2.0 * M_PI * f_shift * (double)sample / sample_rate));
                 iq.emplace_back(convert_iq(i, q));
-                ++tt;
+                ++sample;
             }
         }
     }
 
-    // silence at the end (it seems that more or less 1" is needed by the HackRF
-    // One to complete transmission?)
-    for (int ii(0); ii != int(silence*sample_rate); ++ii) {
-        iq.emplace_back(convert_iq(lp1(0.0), lp2(0.0)));
-    }
-    return iq;
-}
+    const double A = 100;
+    complex8_convert<Byte> convert_iq = complex8_convert<Byte>(A);
+    const size_t sample_rate;
+    const size_t baud_rate;
+    const size_t Ts;
+    iir_filter<6> lp1, lp2;
+    static constexpr size_t dfreq = 20000;
+    static constexpr double f0_mul = 0.5;
+    static constexpr double f1_mul = 2.5;
+
+};
 
 /// Debug print a packet
 template <typename It>

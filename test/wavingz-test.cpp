@@ -59,11 +59,9 @@ BOOST_AUTO_TEST_CASE(test_iir_filter)
 
     std::tie(gain, b, a) = butter_lp<6>(2048000, 40000);
     iir_filter<6> lp(gain, b, a);
-    size_t counter = 0;
-    for(double v: signal)
+    for(size_t counter = 0; counter != signal.size(); ++counter)
     {
         BOOST_CHECK_CLOSE(response[counter], lp(signal[counter]), 1e-12);
-        counter++;
     }
 }
 
@@ -77,13 +75,14 @@ BOOST_AUTO_TEST_CASE(test_encode_decode)
     auto wave_callback = [&](uint8_t* begin, uint8_t* end)
     {
         called = true;
-        BOOST_REQUIRE(end-begin >= buffer.size()); // we may have some more noisy bytes in the end
+        BOOST_REQUIRE((size_t)(end-begin) >= buffer.size()); // we may have some more noisy bytes in the end
         BOOST_REQUIRE(begin[6] == buffer.size());
         BOOST_CHECK_EQUAL_COLLECTIONS(begin, begin+begin[6], buffer.begin(), buffer.end());
     };
 
     wavingz::demod::demod_nrz zwave(2048000, wave_callback);
-    auto complex_bytes1 = wavingz::encode<int8_t>(2000000, 40000, buffer.begin(), buffer.end(), 100, 0.1);
+    wavingz::encoder<int8_t> waver(2000000, 40000, 100);
+    auto complex_bytes1 = waver(buffer.begin(), buffer.end(), 0.1);
     for(auto pair: complex_bytes1)
     {
         zwave(std::complex<double>(double(pair.first)/127.0, double(pair.second)/127.0));
@@ -106,7 +105,8 @@ BOOST_AUTO_TEST_CASE(test_encode_decode_low_power)
     };
 
     wavingz::demod::demod_nrz zwave(2048000, wave_callback);
-    auto complex_bytes1 = wavingz::encode<int8_t>(2000000, 40000, buffer.begin(), buffer.end(), 5.0, 0.1);
+    wavingz::encoder<int8_t> waver(2000000, 40000, 5);
+    auto complex_bytes1 = waver(buffer.begin(), buffer.end(), 0.1);
     for(auto pair: complex_bytes1)
     {
         zwave(std::complex<double>(double(pair.first)/127.0, double(pair.second)/127.0));
@@ -129,7 +129,8 @@ BOOST_AUTO_TEST_CASE(test_encode_decode_noise)
     };
 
     wavingz::demod::demod_nrz zwave(2048000, wave_callback);
-    auto complex_bytes1 = wavingz::encode<int8_t>(2000000, 40000, buffer.begin(), buffer.end(), 100, 0.1);
+    wavingz::encoder<int8_t> waver(2000000, 40000, 100);
+    auto complex_bytes1 = waver(buffer.begin(), buffer.end(), 0.1);
 
     std::default_random_engine g;
     std::normal_distribution<double> gaussian_noise(0.0, 1.0);

@@ -191,7 +191,7 @@ preamble_t::process(sample_sm_t& ctx, const boost::optional<bool>& sample)
             if (symbols_counter > SYNC_SYMBOLS)
             {
                 double sps = double(samples_counter) / (symbols_counter - 1);
-                double data_rate = ctx.sample_rate / sps;
+                // data_rate = ctx.sample_rate / sps;
                 ctx.state(std::unique_ptr<bitlock_t>(new bitlock_t(sps, *sample)));
             }
         }

@@ -95,12 +95,14 @@ main(int argc, char* argv[])
     // encode and output wavingz buffer
     if(vm.count("unsigned"))
     {
-        auto complex_bytes = wavingz::encode<uint8_t>(sample_rate, baud_rate, buffer.begin(), buffer.end());
+        wavingz::encoder<uint8_t> waver(sample_rate, baud_rate);
+        auto complex_bytes = waver(buffer.begin(), buffer.end());
         for (auto pair : complex_bytes) std::cout << pair.first << pair.second;
     }
     else
     {
-        auto complex_bytes = wavingz::encode<int8_t>(sample_rate, baud_rate, buffer.begin(), buffer.end());
+        wavingz::encoder<int8_t> waving(sample_rate, baud_rate);
+        auto complex_bytes = waving(buffer.begin(), buffer.end());
         for (auto pair : complex_bytes) std::cout << pair.first << pair.second;
     }
 
