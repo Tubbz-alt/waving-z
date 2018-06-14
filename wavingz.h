@@ -236,7 +236,7 @@ zwave_print(std::ostream& out, It data_begin, It data_end)
 
     size_t len = data_end - data_begin;
     packet_t& p = *(packet_t*)data_begin;
-    if (len < sizeof(packet_t) || len < p.length)
+    if (data_begin == 0 || p.length == 0 || len < sizeof(packet_t) || len < p.length)
     {
         out << "[ ] ";
         return out;
